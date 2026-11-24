@@ -178,28 +178,30 @@ unsafe fn do_real_syscall6(
 // ------------------------------------------------------------------
 
 fn is_target_process() -> bool {
-    let mut buf = [0u8; 256];
-    let fd = unsafe {
-        libc::open(
-            b"/proc/self/cmdline\0".as_ptr() as *const i8,
-            libc::O_RDONLY,
-        )
-    };
-    if fd < 0 {
-        return false;
-    }
-    let n = unsafe { libc::read(fd, buf.as_mut_ptr() as *mut c_void, buf.len() - 1) };
-    unsafe { libc::close(fd) };
-    if n <= 0 {
-        return false;
-    }
-    let len = (n as usize).min(buf.len() - 1);
-    // cmdline is NUL-separated; compare first entry
-    let cmd = &buf[..len];
-    // Find package name inside cmdline (it may be prefixed by process name)
-    for win in cmd.windows(TARGET_PACKAGE.len()) {
-        if win == TARGET_PACKAGE {
-            return true;
+    // /proc/self/cmdline for the specialized app process is the package
+    // name followed by NULs; /proc/self/comm is the (truncated) app name.
+    // Check both so a specialize-stage or context restriction on one file
+    // doesn't silently disable the hook.
+    for path in [
+        b"/proc/self/cmdline\0".as_ptr() as *const i8,
+        b"/proc/self/comm\0".as_ptr() as *const i8,
+    ] {
+        let mut buf = [0u8; 256];
+        let fd = unsafe { libc::open(path, libc::O_RDONLY) };
+        if fd < 0 {
+            continue;
+        }
+        let n = unsafe { libc::read(fd, buf.as_mut_ptr() as *mut c_void, buf.len() - 1) };
+        unsafe { libc::close(fd) };
+        if n <= 0 {
+            continue;
+        }
+        let len = (n as usize).min(buf.len() - 1);
+        let cmd = &buf[..len];
+        for win in cmd.windows(TARGET_PACKAGE.len()) {
+            if win == TARGET_PACKAGE {
+                return true;
+            }
         }
     }
     false
@@ -210,33 +212,101 @@ fn is_target_process() -> bool {
 // ------------------------------------------------------------------
 
 fn find_houdini_base() -> Option<usize> {
-    let mut buf = [0u8; 8192];
-    let fd = unsafe {
-        libc::open(
-            b"/proc/self/maps\0".as_ptr() as *const i8,
-            libc::O_RDONLY,
-        )
-    };
+    let mut buf = [0u8; 65536];
+    let fd = unsafe { libc::open(b"/proc/self/maps\0".as_ptr() as *const i8, libc::O_RDONLY) };
     if fd < 0 {
         return None;
     }
-    let n = unsafe { libc::read(fd, buf.as_mut_ptr() as *mut c_void, buf.len() - 1) };
-    unsafe { libc::close(fd) };
-    if n <= 0 {
-        return None;
-    }
-    let maps = unsafe { core::str::from_utf8_unchecked(&buf[..n as usize]) };
-    for line in maps.lines() {
-        if line.contains("libhoudini.so") && line.contains("r-xp") {
-            // First executable mapping entry → base address
-            if let Some(dash) = line.find('-') {
-                if let Ok(addr) = usize::from_str_radix(&line[..dash].trim(), 16) {
-                    return Some(addr);
-                }
-            }
+    // /proc/self/maps can exceed 8 KiB; read until EOF.
+    let mut total = 0usize;
+    loop {
+        let n = unsafe {
+            libc::read(
+                fd,
+                buf[total..].as_mut_ptr() as *mut c_void,
+                buf.len() - total,
+            )
+        };
+        if n <= 0 {
+            break;
+        }
+        total += n as usize;
+        if total >= buf.len() {
+            break;
         }
     }
-    None
+    unsafe { libc::close(fd) };
+    if total == 0 {
+        return None;
+    }
+    let maps = unsafe { core::str::from_utf8_unchecked(&buf[..total]) };
+    let mut base: Option<usize> = None;
+    for line in maps.lines() {
+        if !line.contains("libhoudini.so") {
+            continue;
+        }
+        let dash = line.find('-')?;
+        let addr = usize::from_str_radix(&line[..dash].trim(), 16).ok()?;
+        // The ELF base is the mapping whose file offset is 0 — the first
+        // libhoudini.so line. RVA is relative to it regardless of perms.
+        match base {
+            None => base = Some(addr),
+            Some(b) if addr < b => base = Some(addr),
+            _ => {}
+        }
+    }
+    base
+}
+
+// ------------------------------------------------------------------
+// logcat reporting (counters file is SELinux-denied under u:r:zygote)
+// ------------------------------------------------------------------
+
+extern "C" {
+    fn __android_log_write(prio: i32, tag: *const i8, text: *const i8) -> i32;
+}
+
+fn log(msg: &[u8]) {
+    let tag = b"wzry_hook\0";
+    unsafe {
+        __android_log_write(
+            4, // ANDROID_LOG_INFO
+            tag.as_ptr() as *const i8,
+            msg.as_ptr() as *const i8,
+        );
+    }
+}
+
+fn log_u64(label: &[u8], v: u64) {
+    let mut buf = [0u8; 96];
+    let mut i = 0usize;
+    for &c in label {
+        if c == 0 {
+            break;
+        }
+        buf[i] = c;
+        i += 1;
+    }
+    if v == 0 {
+        buf[i] = b'0';
+        i += 1;
+    } else {
+        let mut tmp = [0u8; 20];
+        let mut n = v;
+        let mut t = 0usize;
+        while n > 0 {
+            tmp[t] = b'0' + (n % 10) as u8;
+            n /= 10;
+            t += 1;
+        }
+        while t > 0 {
+            t -= 1;
+            buf[i] = tmp[t];
+            i += 1;
+        }
+    }
+    buf[i] = 0;
+    log(&buf[..i]);
 }
 
 // ------------------------------------------------------------------
@@ -247,14 +317,28 @@ fn find_houdini_base() -> Option<usize> {
 unsafe fn install_hook() -> bool {
     let base = match find_houdini_base() {
         Some(b) => b,
-        None => return false,
+        None => {
+            log(b"houdini base not found\0");
+            return false;
+        }
     };
+    log_u64(b"houdini base=\0", base as u64);
+    // Verify the page is really executable/readable before trusting it —
+    // a stale or partially-unmapped base would fault on the byte check.
+    let probe = core::slice::from_raw_parts(base as *const u8, 4);
+    log_u64(
+        b"elf magic=\0",
+        u32::from_le_bytes([probe[0], probe[1], probe[2], probe[3]]) as u64,
+    );
     let target = base + TRAMPOLINE_RVA;
+    log_u64(b"target=\0", target as u64);
     let hook_addr = hook_syscall_stub as usize;
 
     // Verify original bytes.
     let current = core::slice::from_raw_parts(target as *const u8, 5);
+    log_u64(b"byte0=\0", current[0] as u64);
     if current != ORIG_BYTES {
+        log_u64(b"orig mismatch byte0=\0", current[0] as u64);
         // If already patched by us (e.g. re-inject), treat as success.
         return current[0] == 0xE9;
     }
@@ -262,6 +346,7 @@ unsafe fn install_hook() -> bool {
     // Calculate rel32: hook_addr - (target + 5)
     let rel = (hook_addr as i64) - (target as i64) - 5;
     if rel < i32::MIN as i64 || rel > i32::MAX as i64 {
+        log(b"rel32 out of range\0");
         return false; // out of range, need a different strategy
     }
     let rel32 = rel as i32;
@@ -277,6 +362,7 @@ unsafe fn install_hook() -> bool {
         libc::PROT_READ | libc::PROT_WRITE | libc::PROT_EXEC,
     ) != 0
     {
+        log(b"mprotect failed\0");
         return false;
     }
 
@@ -298,6 +384,7 @@ unsafe fn install_hook() -> bool {
     );
 
     HOOKED.store(1, Ordering::Release);
+    log(b"hook installed at 0x5001d0\0");
     true
 }
 
@@ -333,16 +420,108 @@ fn dump_counters() {
 
 #[no_mangle]
 pub extern "C" fn zygisk_module_entry() -> i32 {
-    if !is_target_process() {
-        return 0;
+    // libhoudini.so is mapped by the native bridge *after* the specialize
+    // entry returns, so it isn't in maps yet — but the zygote context here
+    // crashes on pthread_create. Spawn a kernel thread via raw clone()
+    // (no libc dependency) that polls for the base and patches the
+    // trampoline the moment libhoudini.so appears.
+    unsafe {
+        spawn_houdini_watcher();
     }
-    if unsafe { install_hook() } {
-        // Persist initial counters so testers can verify the hook landed.
-        dump_counters();
-        1
-    } else {
-        0
+    1
+}
+
+const CLONE_VM: u64 = 0x00000100;
+const CLONE_FS: u64 = 0x00000200;
+const CLONE_FILES: u64 = 0x00000400;
+const CLONE_SIGHAND: u64 = 0x00000800;
+const CLONE_THREAD: u64 = 0x00010000;
+
+/// Spawn a detached kernel thread running `houdini_watcher` via raw
+/// clone(2) — pthread_create faults under the specialize-stage zygote
+/// context, but a bare clone sharing the address space works.
+unsafe fn spawn_houdini_watcher() {
+    // Allocate the child stack with mmap — a big static array inflates the
+    // .bss past the zygisk loader's reserved-address-space limit.
+    let stack = libc::mmap(
+        core::ptr::null_mut(),
+        65536,
+        libc::PROT_READ | libc::PROT_WRITE,
+        libc::MAP_PRIVATE | libc::MAP_ANONYMOUS,
+        -1,
+        0,
+    );
+    if stack == libc::MAP_FAILED {
+        return;
     }
+    let stack_top = (stack as *mut u8).add(65536) as *mut c_void;
+    let flags = CLONE_VM | CLONE_FS | CLONE_FILES | CLONE_SIGHAND | CLONE_THREAD;
+    let ret: i64;
+    core::arch::asm!(
+        "mov rax, 56",          // __NR_clone on x86_64
+        "mov rdi, {flags}",
+        "mov rsi, {stack}",
+        "xor rdx, rdx",
+        "xor r10, r10",
+        "xor r8, r8",
+        "syscall",
+        flags = in(reg) flags,
+        stack = in(reg) stack_top,
+        out("rax") ret,
+        out("rcx") _,
+        out("r11") _,
+    );
+    if ret == 0 {
+        // Child: poll for libhoudini then patch. Must not return — exit
+        // via exit_group so the clone dies cleanly.
+        houdini_watcher_body();
+        core::arch::asm!(
+            "mov rax, 231", // __NR_exit_group
+            "xor rdi, rdi",
+            "syscall",
+            options(noreturn),
+        );
+    }
+    // Parent: ret is child tid; nothing more to do.
+}
+
+fn houdini_watcher_body() {
+    for _ in 0..600 {
+        // ~600 * 50ms = 30s window for libhoudini to appear.
+        if find_houdini_base().is_some() {
+            if unsafe { install_hook() } {
+                HOOKED.store(1, Ordering::Release);
+            } else {
+                HOOKED.store(2, Ordering::Release);
+            }
+            return;
+        }
+        // nanosleep via raw syscall (libc may not be fully usable).
+        let ts = libc::timespec {
+            tv_sec: 0,
+            tv_nsec: 50_000_000,
+        };
+        unsafe {
+            libc::nanosleep(&ts, core::ptr::null_mut());
+        }
+    }
+    HOOKED.store(3, Ordering::Release);
+    log(b"houdini never appeared\0");
+}
+
+/// Zygisk Next loader resolves `zygisk_entry` (its canonical hook symbol).
+/// Alias it to our module entry so both naming conventions work.
+#[no_mangle]
+pub extern "C" fn zygisk_entry() -> i32 {
+    zygisk_module_entry()
+}
+
+/// Companion-process entry: we don't need a companion, but Zygisk Next
+/// probes for it when a module declares companion support. Returning 0
+/// keeps the companion path inert.
+#[no_mangle]
+pub extern "C" fn zygisk_companion_entry(_fd: i32) -> i32 {
+    0
 }
 
 // ------------------------------------------------------------------
