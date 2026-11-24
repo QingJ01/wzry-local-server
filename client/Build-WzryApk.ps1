@@ -27,6 +27,26 @@ function Get-FileSha256 {
     return (Get-FileHash -LiteralPath $Path -Algorithm SHA256).Hash
 }
 
+function Get-ZipEntrySha256 {
+    param(
+        [System.IO.Compression.ZipArchiveEntry]$Entry
+    )
+
+    $entryStream = $Entry.Open()
+    try {
+        $hashStream = [System.Security.Cryptography.SHA256]::Create()
+        try {
+            return ([System.BitConverter]::ToString($hashStream.ComputeHash($entryStream))).Replace('-', '')
+        }
+        finally {
+            $hashStream.Dispose()
+        }
+    }
+    finally {
+        $entryStream.Dispose()
+    }
+}
+
 function Assert-CommandPath {
     param(
         [string]$Path,
@@ -69,6 +89,8 @@ Assert-CommandPath $apksignerJar 'APKSigner'
 Assert-CommandPath $java 'Java'
 Assert-CommandPath $keytool 'Keytool'
 
+Add-Type -AssemblyName System.IO.Compression.FileSystem
+
 $patch = Get-Content -Raw -LiteralPath $PatchManifest | ConvertFrom-Json
 $entries = @($patch.entries)
 $changes = @()
@@ -94,7 +116,7 @@ try {
                 $oldHash = $null
                 $existingEntry = $compressedArchive.GetEntry($entrySpec.entryPath)
                 if ($existingEntry) {
-                    $oldHash = Get-FileSha256 $entrySpec.sourcePath
+                    $oldHash = Get-ZipEntrySha256 $existingEntry
                     $existingEntry.Delete()
                 }
 
@@ -130,7 +152,6 @@ try {
         }
     }
     else {
-        Add-Type -AssemblyName System.IO.Compression.FileSystem
         $compressedArchive = [System.IO.Compression.ZipFile]::Open($stagingApk, 'Update')
         try {
             for ($index = $compressedArchive.Entries.Count - 1; $index -ge 0; $index--) {

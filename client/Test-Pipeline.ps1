@@ -61,7 +61,15 @@ foreach ($requiredParameter in @('Apk', 'Serial')) {
 }
 
 $buildContent = Get-Content -Raw -LiteralPath $buildScript
-foreach ($requiredToken in @('A016D941A3D7BA0A8FC976DAE6FE744EFEC85835A16DD10928B65A9C7E19EE5D', 'zipalign', 'apksigner', 'META-INF', 'keystore')) {
+foreach ($requiredToken in @(
+    'A016D941A3D7BA0A8FC976DAE6FE744EFEC85835A16DD10928B65A9C7E19EE5D',
+    'zipalign',
+    'apksigner',
+    'META-INF',
+    'keystore',
+    'Get-ZipEntrySha256',
+    'Add-Type -AssemblyName System.IO.Compression.FileSystem'
+)) {
     Assert-True ($buildContent.Contains($requiredToken)) "Build script must implement $requiredToken"
 }
 
