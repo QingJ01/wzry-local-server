@@ -28,6 +28,7 @@ node_modules/
 dist/
 build/
 coverage/
+client/builds/
 .env
 .env.*
 

@@ -206,6 +206,8 @@ $entryMapAssignment = $buildScriptAst.Find({
 Assert-True ($null -ne $entryMapAssignment) 'Build script must preserve the source ZIP entry map'
 Assert-True ($entryMapAssignment.Right.Extent.Text -eq '[ordered]@{}') 'Build script must preserve source ZIP entry order'
 Assert-True ((Get-Content -Raw -LiteralPath $scriptPath).Contains('$entryMap.Keys')) 'Build script must rebuild entries in source order'
+    Assert-True ((Get-Content -Raw -LiteralPath $scriptPath).Contains('Get-EntryStorePolicy')) 'Build script must write sensitive entries with ZIP Store method'
+    Assert-True ((Get-Content -Raw -LiteralPath $scriptPath).Contains('CompressionMethod')) 'Build script must enforce the ZIP compression method'
 Assert-True ((Get-Content -Raw -LiteralPath $scriptPath).Contains("EntryPath -eq 'resources.arsc'")) 'Build script must store resources.arsc uncompressed'
 Assert-True ((Get-Content -Raw -LiteralPath $scriptPath).Contains("EntryPath -like 'lib/*'")) 'Build script must store lib entries uncompressed'
 Assert-True ((Get-Content -Raw -LiteralPath $scriptPath).Contains("EntryPath -like 'assets/*'")) 'Build script must store assets entries uncompressed'

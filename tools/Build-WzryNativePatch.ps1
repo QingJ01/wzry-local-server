@@ -64,6 +64,14 @@ function Get-EntryCompressionLevel {
     return [System.IO.Compression.CompressionLevel]::Optimal
 }
 
+function Get-EntryStorePolicy {
+    param([string]$EntryPath)
+
+    return ($EntryPath -eq 'resources.arsc' -or
+        $EntryPath -like 'lib/*' -or
+        $EntryPath -like 'assets/*')
+}
+
 function Read-EntryBytes {
     param([System.IO.Compression.ZipArchiveEntry]$Entry)
     $stream = $Entry.Open()
@@ -84,6 +92,17 @@ function Write-EntryBytes {
         [byte[]]$Bytes
     )
     $entry = $Archive.CreateEntry($EntryPath, (Get-EntryCompressionLevel $EntryPath))
+    if (Get-EntryStorePolicy $EntryPath) {
+        $compressionMethodProperty = [System.IO.Compression.ZipArchiveEntry].GetProperty(
+            'CompressionMethod',
+            [System.Reflection.BindingFlags]::Instance -bor [System.Reflection.BindingFlags]::NonPublic
+        )
+        $compressionMethodProperty.SetValue(
+            $entry,
+            [Enum]::Parse($compressionMethodProperty.PropertyType, 'Stored'),
+            $null
+        )
+    }
     $stream = $entry.Open()
     try {
         $stream.Write($Bytes, 0, $Bytes.Length)

@@ -95,6 +95,8 @@ $writeEntryFunction = $buildScriptAst.Find({
 }, $true)
 Assert-True ($null -ne $writeEntryFunction) 'Build script must define Write-EntryBytes'
 Assert-True ($writeEntryFunction.Body.Extent.Text.Contains('Get-EntryCompressionLevel')) 'Build script must preserve ZIP compression policy'
+Assert-True ($buildContent.Contains("Get-EntryStorePolicy")) 'Build script must write sensitive entries with ZIP Store method'
+Assert-True ($buildContent.Contains("CompressionMethod")) 'Build script must enforce the ZIP compression method'
 Assert-True ($buildContent.Contains("EntryPath -eq 'resources.arsc'")) 'Build script must store resources.arsc uncompressed'
 
 Assert-Throws {
