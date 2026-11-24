@@ -21,6 +21,7 @@ workspace/tests/
 workspace/analysis/*
 !workspace/analysis/gamecore/
 !workspace/analysis/gamecore/**
+tools/workspace/
 workspace/analysis/gamecore/strings_filtered.txt
 zip_inventory.txt
 server/target/
