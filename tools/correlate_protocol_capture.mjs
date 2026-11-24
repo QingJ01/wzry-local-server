@@ -227,19 +227,26 @@ function parseProcAddress(value) {
     }
 
     if (addressHex.length === 32) {
-        const words = [];
-        for (let index = 0; index < 32; index += 4) {
-            words.push(addressHex.slice(index, index + 4));
+        // Linux /proc/net/tcp6 prints each 32-bit word in host byte order, so
+        // byte order inside every 8-hex-digit word is little-endian on ARM.
+        const bytes = [];
+        for (let index = 0; index < 32; index += 8) {
+            const word = addressHex.slice(index, index + 8);
+            for (let byteIndex = 6; byteIndex >= 0; byteIndex -= 2) {
+                bytes.push(Number.parseInt(word.slice(byteIndex, byteIndex + 2), 16));
+            }
         }
-        const bytes = ipv6ToBytes(words.join(':'));
-        if (bytes !== null &&
-            bytes.slice(0, 10).every(byte => byte === 0) &&
-            bytes[10] === 0xff && bytes[11] === 0xff) {
+        const mapped = ipv4MappedBytesToAddress(bytes);
+        if (mapped !== null) {
             return {
                 family: 'AF_INET',
-                address: bytes.slice(12).join('.'),
+                address: mapped,
                 port
             };
+        }
+        const words = [];
+        for (let index = 0; index < 16; index += 2) {
+            words.push(((bytes[index] << 8) | bytes[index + 1]).toString(16));
         }
         return {
             family: 'AF_INET6',
@@ -258,23 +265,59 @@ function endpointKey(endpoint) {
     return `${(endpoint.family || 'unknown')}|${endpoint.address}|${endpoint.port}`;
 }
 
+function ipv4MappedBytesToAddress(bytes) {
+    if (bytes.length !== 16) {
+        return null;
+    }
+    const isMapped = bytes.slice(0, 10).every(byte => byte === 0) &&
+        bytes[10] === 0xff && bytes[11] === 0xff;
+    return isMapped ? bytes.slice(12).join('.') : null;
+}
+
 function canonicalAddress(address) {
+    if (typeof address !== 'string' || address.length === 0) {
+        return address;
+    }
     const match = /^::ffff:(\d+\.\d+\.\d+\.\d+)$/i.exec(address || '');
-    return match === null ? address : match[1];
+    if (match !== null) {
+        return match[1];
+    }
+    if (address.includes(':')) {
+        const bytes = ipv6ToBytes(address);
+        if (bytes !== null) {
+            const mapped = ipv4MappedBytesToAddress(bytes);
+            if (mapped !== null) {
+                return mapped;
+            }
+        }
+    }
+    return address;
+}
+
+function canonicalFamily(endpoint) {
+    const canonical = canonicalAddress(endpoint.address);
+    if (canonical !== endpoint.address && /^\d+\.\d+\.\d+\.\d+$/.test(canonical)) {
+        return 'AF_INET';
+    }
+    if (endpoint.family === 'AF_INET' || endpoint.family === 'AF_INET6') {
+        return endpoint.family;
+    }
+    return canonical.includes(':') ? 'AF_INET6' : 'AF_INET';
 }
 
 function canonicalEndpointKey(endpoint) {
     return endpointKey({
         ...endpoint,
+        family: canonicalFamily(endpoint),
         address: canonicalAddress(endpoint.address)
     });
 }
 
 function endpointClassification(endpoint) {
-    const address = endpoint.address.toLowerCase();
+    const address = canonicalAddress(endpoint.address).toLowerCase();
     const port = endpoint.port;
     if (address === '127.0.0.1' || address === '::1') {
-        return 'local-server';
+        return 'local-adb-reverse';
     }
     if (port === 80 || port === 443) {
         return 'http-control-plane';
@@ -304,7 +347,11 @@ function recordEndpoint(collector, endpoint, source, options) {
     if (!collector.endpoints.has(key)) {
         collector.endpoints.set(key, {
             key,
-            endpoint,
+            endpoint: {
+                family: canonicalFamily(endpoint),
+                address: canonicalAddress(endpoint.address),
+                port: endpoint.port
+            },
             classification: endpointClassification(endpoint),
             sources: [],
             descriptors: [],
@@ -313,6 +360,7 @@ function recordEndpoint(collector, endpoint, source, options) {
             observedPhases: [],
             directions: [],
             functions: [],
+            socketClasses: [],
             timestamps: [],
             processOwnership: [],
             socketSnapshotCount: 0,
@@ -345,6 +393,12 @@ function recordEndpoint(collector, endpoint, source, options) {
     }
     if (options.functionName && !record.functions.includes(options.functionName)) {
         record.functions.push(options.functionName);
+    }
+    if (options.socketClass && !record.socketClasses.includes(options.socketClass)) {
+        record.socketClasses.push(options.socketClass);
+        if (options.socketClass === 'local-adb-reverse' && record.classification !== 'local-adb-reverse') {
+            record.classification = 'local-adb-reverse';
+        }
     }
     if (options.timestamp !== null && options.timestamp !== undefined) {
         record.timestamps.push(options.timestamp);
@@ -461,6 +515,7 @@ function parseFridaEvent(value, filePath, lineNumber) {
         direction: value.direction === 'outbound' || value.direction === 'inbound' ? value.direction : null,
         functionName: typeof value.function === 'string' ? value.function : null,
         hookName: typeof value.hook === 'string' ? value.hook : null,
+        socketClass: typeof value.socketClass === 'string' ? value.socketClass : null,
         module: typeof value.module === 'string' ? value.module : null,
         exportName: typeof value.export === 'string' ? value.export : null,
         requestedLength: Number.isFinite(value.requestedLength) ? value.requestedLength : null,
@@ -547,6 +602,7 @@ function buildEndpointResult(record) {
         fridaEventCount: record.fridaEventCount,
         directions: [...record.directions].sort(),
         functions: [...record.functions].sort(),
+        socketClasses: [...record.socketClasses].sort(),
         outboundEvents: record.outboundEvents,
         inboundEvents: record.inboundEvents,
         requestedLength: {
@@ -769,6 +825,7 @@ async function loadInputs(collector) {
                     phase: event.phase,
                     direction: event.direction,
                     functionName: event.functionName,
+                    socketClass: event.socketClass,
                     actualLength: event.actualLength,
                     requestedLength: event.requestedLength
                 });

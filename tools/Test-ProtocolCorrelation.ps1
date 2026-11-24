@@ -44,7 +44,7 @@ $socketSnapshot = [ordered]@{
     package = 'com.tencent.tmgp.sgame'
     processId = 1234
     uid = 10255
-    socketCount = 2
+    socketCount = 3
     sockets = @()
     connections = @(
         [ordered]@{
@@ -54,6 +54,17 @@ $socketSnapshot = [ordered]@{
             State = 'ESTABLISHED'
             Uid = 10255
             Inode = 67890
+        },
+        # /proc/net/tcp6 IPv4-mapped loopback written as host-order 32-bit
+        # words: 00000000 00000000 FFFF0000 0100007F == ::ffff:127.0.0.1.
+        # This is the ADB reverse endpoint the Rust server listens on.
+        [ordered]@{
+            Table = 'tcp6'
+            LocalAddress = '0000000000000000FFFF00000100007F:9C40'
+            RemoteAddress = '0000000000000000FFFF00000100007F:4CA4'
+            State = 'ESTABLISHED'
+            Uid = 10255
+            Inode = 67900
         }
     )
 }
@@ -168,6 +179,48 @@ $unowned = [ordered]@{
 }
 $unowned | ConvertTo-Json -Compress -Depth 8 | Add-Content -LiteralPath (Join-Path $fridaDirectory 'login-capture.jsonl')
 
+# ADB reverse endpoint written two ways by wzry-network.js: the connect hook
+# reports the sockaddr as expanded AF_INET6, while socket-data events read the
+# peer address as ::ffff:127.0.0.1. All three events must canonicalize onto the
+# single AF_INET 127.0.0.1:19620 endpoint classified as local-adb-reverse.
+$adbReverseEvents = @(
+    [ordered]@{
+        timestamp = '2026-11-24T10:00:08.000Z'
+        type = 'connect'
+        descriptor = 63
+        result = 0
+        socketClass = 'local-adb-reverse'
+        endpoint = [ordered]@{ family = 'AF_INET6'; address = '0:0:0:0:0:ffff:7f00:1'; port = 19620 }
+    },
+    [ordered]@{
+        timestamp = '2026-11-24T10:00:09.000Z'
+        type = 'socket-data'
+        direction = 'outbound'
+        function = 'send'
+        descriptor = 63
+        socketInode = 67900
+        endpoint = [ordered]@{ family = $null; address = '::ffff:127.0.0.1'; port = 19620 }
+        requestedLength = 200
+        actualLength = 200
+        previewHex = '03'
+        previewTruncated = $false
+    },
+    [ordered]@{
+        timestamp = '2026-11-24T10:00:10.000Z'
+        type = 'socket-data'
+        direction = 'inbound'
+        function = 'recv'
+        descriptor = 63
+        socketInode = 67900
+        endpoint = [ordered]@{ family = $null; address = '::ffff:127.0.0.1'; port = 19620 }
+        requestedLength = 16384
+        actualLength = 126
+        previewHex = '04'
+        previewTruncated = $false
+    }
+)
+$adbReverseEvents | ForEach-Object { $_ | ConvertTo-Json -Compress -Depth 8 } | Add-Content -LiteralPath (Join-Path $fridaDirectory 'login-capture.jsonl')
+
 @{
     startedAt = '2026-11-24T10:00:00.000Z'
     packageId = 'com.tencent.tmgp.sgame'
@@ -195,8 +248,8 @@ if ($result.schemaVersion -ne 1) {
 if ($result.input.processSocketSnapshots -ne 2) {
     throw 'Fixture must produce two process-socket snapshots'
 }
-if ($result.input.fridaEvents -ne 7) {
-    throw 'Fixture must parse seven valid Frida events'
+if ($result.input.fridaEvents -ne 10) {
+    throw 'Fixture must parse ten valid Frida events'
 }
 # The snapshot remote 0A7100CB:1F90 is little-endian 203.0.113.10:8080, the same
 # endpoint the three fd-12 socket-data events and the inode-67890 wrapped event ride
@@ -205,7 +258,7 @@ if ($result.input.fridaEvents -ne 7) {
 if ($result.unownedFridaEventCount -ne 1) {
     throw 'Fixture must leave exactly the foreign-endpoint event unowned'
 }
-if ($result.input.fridaOutboundEvents -ne 3 -or $result.input.fridaInboundEvents -ne 2) {
+if ($result.input.fridaOutboundEvents -ne 4 -or $result.input.fridaInboundEvents -ne 3) {
     throw 'Fixture direction counts are incorrect'
 }
 if ($result.input.fridaAttachedHooks -ne 1 -or $result.input.fridaMissingHooks -ne 0) {
@@ -216,6 +269,35 @@ if ($result.dataQuality.invalidJsonLines -ne 1) {
 }
 if ($result.evidenceStatus -ne 'insufficient-for-protocol-recovery') {
     throw 'Fixture evidence status must remain insufficient'
+}
+
+$adbReverseEndpoints = @($result.endpoints | Where-Object {
+    $_.endpoint.address -eq '127.0.0.1' -and $_.endpoint.port -eq 19620
+})
+if ($adbReverseEndpoints.Count -ne 1) {
+    throw 'ADB reverse endpoint must collapse onto one canonical 127.0.0.1:19620 record'
+}
+$adbReverseEndpoint = $adbReverseEndpoints[0]
+if ($adbReverseEndpoint.classification -ne 'local-adb-reverse') {
+    throw 'ADB reverse endpoint must be classified local-adb-reverse'
+}
+if (-not ($adbReverseEndpoint.sources -contains 'frida' -and $adbReverseEndpoint.sources -contains 'process-socket')) {
+    throw 'ADB reverse endpoint must merge frida and process-socket evidence'
+}
+if ($adbReverseEndpoint.endpoint.family -ne 'AF_INET') {
+    throw 'ADB reverse endpoint must canonicalize to AF_INET'
+}
+if (-not ($adbReverseEndpoint.socketClasses -contains 'local-adb-reverse')) {
+    throw 'ADB reverse endpoint must retain the local-adb-reverse socket class'
+}
+if ($adbReverseEndpoint.outboundEvents -lt 1 -or $adbReverseEndpoint.inboundEvents -lt 1) {
+    throw 'ADB reverse endpoint must record bidirectional socket data'
+}
+$mappedRemoteEndpoint = @($result.endpoints | Where-Object {
+    $_.endpoint.address -eq '203.0.113.10' -and $_.endpoint.port -eq 8080
+})
+if ($mappedRemoteEndpoint.Count -ne 1) {
+    throw '203.0.113.10:8080 must remain a single canonical endpoint'
 }
 
 $gateway = $result.findings | Where-Object { $_.name -eq 'Gateway endpoint' }
