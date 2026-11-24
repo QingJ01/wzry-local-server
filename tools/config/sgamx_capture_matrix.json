@@ -1,0 +1,88 @@
+{
+  "version": 1,
+  "package": "com.tencent.tmgp.sgamx",
+  "serial": "vivo-sgamx",
+  "description": "sgamx (coexist-renamed package, v3) capture matrix for post-login/lobby protocol evidence on the vivo device. Evaluates evidence only; nothing here authorizes a login, purchase, or battle action. Serial is resolved at run time via WZRY_CAPTURE_SERIAL.",
+  "evidenceDirectories": {
+    "sockets": "workspace/observations/process-sockets-sgamx",
+    "frida": "workspace/observations/frida-sgamx",
+    "http": "workspace/observations"
+  },
+  "phases": [
+    {
+      "phase": "cold-start",
+      "order": 0,
+      "minRounds": 2,
+      "completedRounds": 0,
+      "status": "pending",
+      "description": "Process launch, first-screen consent, and permissions screens on the sgamx build. Proves only that the renamed process exists and which sockets it opens before login.",
+      "gate": {
+        "requiresProcessOwnership": true,
+        "requiresBidirectionalData": false,
+        "requiresRepeatedEndpoint": false,
+        "minSocketSnapshotsPerRound": 1,
+        "notes": "A successful round needs a PID/UID-owned socket snapshot plus a Frida session-started event. No non-443 game endpoint is expected at this phase."
+      }
+    },
+    {
+      "phase": "login",
+      "order": 10,
+      "minRounds": 2,
+      "completedRounds": 0,
+      "status": "pending",
+      "description": "Login page submit through result and transition to lobby on sgamx. Account protocol work requires a repeated non-443 endpoint across two sessions.",
+      "gate": {
+        "requiresProcessOwnership": true,
+        "requiresBidirectionalData": true,
+        "requiresRepeatedEndpoint": true,
+        "minSocketSnapshotsPerRound": 1,
+        "notes": "If only MSDK/TDM/GCloud HTTPS (443) appears, account protocol remains unproven. Direction and timing must correlate with the login action."
+      }
+    },
+    {
+      "phase": "lobby",
+      "order": 20,
+      "minRounds": 2,
+      "completedRounds": 0,
+      "status": "pending",
+      "description": "Lobby loaded baseline on sgamx used to compare against room, match, shop, and battle traffic.",
+      "gate": {
+        "requiresProcessOwnership": true,
+        "requiresBidirectionalData": true,
+        "requiresRepeatedEndpoint": true,
+        "minSocketSnapshotsPerRound": 1,
+        "notes": "Baseline is needed to distinguish persistent control-plane sockets from phase-specific game sockets."
+      }
+    },
+    {
+      "phase": "shop",
+      "order": 30,
+      "minRounds": 2,
+      "completedRounds": 0,
+      "status": "pending",
+      "description": "Shop open, item list load, and purchase confirmation on sgamx. No real purchase unless explicitly authorized for a disposable item.",
+      "gate": {
+        "requiresProcessOwnership": true,
+        "requiresBidirectionalData": true,
+        "requiresRepeatedEndpoint": true,
+        "minSocketSnapshotsPerRound": 1,
+        "notes": "Pass needs request/response correlation and a response that precedes the UI result in two sessions. Cached-list traffic alone fails the gate."
+      }
+    },
+    {
+      "phase": "battle",
+      "order": 40,
+      "minRounds": 2,
+      "completedRounds": 0,
+      "status": "pending",
+      "description": "Training or lowest-risk battle only on sgamx. Never ranked or account-affecting battle during a first capture.",
+      "gate": {
+        "requiresProcessOwnership": true,
+        "requiresBidirectionalData": true,
+        "requiresRepeatedEndpoint": true,
+        "minSocketSnapshotsPerRound": 1,
+        "notes": "Pass needs a persistent or distinct battle endpoint, increased bidirectional traffic, and at least three comparable frame samples. Telemetry-only capture fails."
+      }
+    }
+  ]
+}

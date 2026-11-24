@@ -7,12 +7,17 @@ import frida from 'frida';
 const logPath = process.argv[2];
 const captureSeconds = Number(process.argv[3] || 60);
 const attachMode = process.argv[4] === 'attach';
-const packageId = 'com.tencent.tmgp.sgame';
-const adbPath = 'D:\\project\\poxxiao\\tools\\android-sdk\\platform-tools\\adb.exe';
+const packageId = process.env.WZRY_CAPTURE_PACKAGE || 'com.tencent.tmgp.sgame';
+const serial = process.env.WZRY_CAPTURE_SERIAL || '192.168.5.101:5555';
+const activityComponent = packageId === 'com.tencent.tmgp.sgamx'
+  ? `${packageId}/com.tencent.tmgp.sgame.SGameActivity`
+  : `${packageId}/.SGameActivity`;
+const adbPath = 'D:\\Android\\Sdk\\platform-tools\\adb.exe';
 const scriptPath = path.resolve(import.meta.dirname, 'wzry-network.js');
 
 if (!logPath || !Number.isFinite(captureSeconds) || captureSeconds <= 0) {
-  console.error('Usage: node tools/frida/run-network-capture.mjs <log-path> <seconds>');
+  console.error('Usage: node tools/frida/run-network-capture.mjs <log-path> <seconds> [attach]');
+  console.error('  env: WZRY_CAPTURE_SERIAL (default 192.168.5.101:5555), WZRY_CAPTURE_PACKAGE (default com.tencent.tmgp.sgame)');
   process.exit(2);
 }
 
@@ -44,14 +49,14 @@ let processId = null;
 let spawnedProcess = null;
 if (attachMode) {
   execFileSync(adbPath, [
-    '-s', '192.168.5.102:5555',
+    '-s', serial,
     'shell',
-    'am', 'start', '-n', `${packageId}/.SGameActivity`
+    'am', 'start', '-n', activityComponent
   ], { stdio: 'ignore' });
   for (let attempt = 0; attempt < 30; attempt += 1) {
     try {
       processId = Number(execFileSync(adbPath, [
-        '-s', '192.168.5.102:5555',
+        '-s', serial,
         'shell',
         'pidof', packageId
       ], { encoding: 'utf8' }).trim());
@@ -83,6 +88,7 @@ if (spawnedProcess !== null) {
 appendFileSync(metadataPath, `${JSON.stringify({
   startedAt: new Date().toISOString(),
   packageId,
+  serial,
   pid: processId,
   attachMode,
   remoteDevice: '127.0.0.1:27042',
@@ -100,5 +106,5 @@ try {
 }
 appendFileSync(metadataPath, `${JSON.stringify({ stoppedAt: new Date().toISOString() }, null, 2)}\n`);
 if (!attachMode) {
-  execFile(adbPath, ['-s', '192.168.5.102:5555', 'shell', 'am', 'force-stop', packageId], () => {});
+  execFile(adbPath, ['-s', serial, 'shell', 'am', 'force-stop', packageId], () => {});
 }

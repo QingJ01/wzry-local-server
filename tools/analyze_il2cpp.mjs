@@ -112,6 +112,33 @@ const TARGETS = [
     fieldCount: 23,
     selectedMethods: ["RefreshShop", "OnShop_BuyItem", "OnShop_BuyItemConfirm", "OnShop_ManualRefresh", "OnRequestGoodsRefershShopItems", "OnReceiveShopItems", "ReceiveItemBuy", "ReceiveShopItems"],
   },
+  {
+    typeIndex: 5683,
+    typeName: "IIPSMobileVersionCallBackImplement",
+    methodStart: 42303,
+    methodCount: 11,
+    fieldStart: 26598,
+    fieldCount: 5,
+    selectedMethods: ["OnGetNewVersionInfo", "OnActionMsg", "OnNoticeNextAction", "OnNoticeInstallApk", "OnSuccess", "OnError"],
+  },
+  {
+    typeIndex: 4787,
+    typeName: "IIPSMobile.VersionMgr",
+    methodStart: 34755,
+    methodCount: 33,
+    fieldStart: 20618,
+    fieldCount: 1,
+    selectedMethods: ["InitVersionMgr", "CheckAppUpdate", "MgrCheckAppUpdate", "SetNextStage", "MgrSetNextStage", "GetCurDataVersion", "InstallApk"],
+  },
+  {
+    typeIndex: 4794,
+    typeName: "IIPSMobile.IIPSMobileVersionCallBackInterface",
+    methodStart: 34823,
+    methodCount: 10,
+    fieldStart: null,
+    fieldCount: null,
+    selectedMethods: ["OnGetNewVersionInfo", "OnActionMsg", "OnNoticeNextAction", "OnNoticeInstallApk", "OnSuccess"],
+  },
 ];
 
 const STRING_QUERY_TERMS = [
