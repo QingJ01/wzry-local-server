@@ -1,0 +1,42 @@
+{
+  "patchName": "package-rename",
+  "version": "1.0.0",
+  "description": "Rename root manifest package for coexist-install debug build",
+  "sourceApk": "client/builds/wzry-version-gate-method0.apk",
+  "outputApk": "client/builds/wzry-localdebug-sgamx.apk",
+  "sourcePackage": "com.tencent.tmgp.sgame",
+  "targetPackage": "com.tencent.tmgp.sgamx",
+  "strategy": "axml-string-pool-inplace",
+  "editPoints": [
+    {
+      "file": "AndroidManifest.xml",
+      "location": "axml-string-pool",
+      "stringIndex": 231,
+      "textOffset": 15640,
+      "encoding": "utf-16-le",
+      "originalBytes": "com.tencent.tmgp.sgame",
+      "patchedBytes": "com.tencent.tmgp.sgamx",
+      "reason": "root manifest package attribute"
+    }
+  ],
+  "nonEdits": [
+    "provider authorities (kept as com.tencent.tmgp.sgame.* to avoid breaking component lookups)",
+    "permission names",
+    "activity taskAffinity",
+    "deep-link hosts",
+    "app metadata"
+  ],
+  "compressionPreserved": {
+    "AndroidManifest.xml": "deflate (method 8)",
+    "resources.arsc": "stored (method 0)",
+    "lib/*.so": "stored (method 0)",
+    "assets/*": "stored (method 0)"
+  },
+  "verification": {
+    "aapt2Packagename": "com.tencent.tmgp.sgamx",
+    "zipalignCheck": "passed",
+    "apksignerVerify": "v2+v3 passed",
+    "entryOrderPreserved": true,
+    "untouchedEntries": 681
+  }
+}
