@@ -1,0 +1,7 @@
+{
+  "name": "wzry-frida-tools",
+  "private": true,
+  "dependencies": {
+    "frida": "17.27.5"
+  }
+}

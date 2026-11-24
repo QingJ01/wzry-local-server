@@ -104,6 +104,35 @@ Before deployment, the main thread must obtain explicit approval and check:
 - The server binary already exists in a known operator-controlled location.
 - The operator accepts that Frida injection may terminate the game or damage the account session.
 
+The current operator-controlled server asset is:
+
+- Host: `D:\project\poxxiao\work\period-formula-research\tools\frida-server-17.27.5-android-arm64`
+- SHA-256: `02CB10FF691ADC60EFF69450C99D9296B0A285F89374D6DB8F8BD2B8A82F5967`
+- Device path: `/data/local/tmp/wzry-frida-server-17.27.5`
+- Binding: `127.0.0.1` only, paired with an exact ADB port forward.
+
+`tools\frida\Run-NetworkCapture.ps1` implements the approved temporary deployment surface only. It validates the target serial, records the server hash and timestamps, binds loopback, removes the exact ADB forward, and deletes only the exact temporary server path during cleanup. Install the matching CLI with:
+
+```powershell
+npm --prefix .\tools\frida\ install
+```
+
+### 2026-11-24 runtime status
+
+- The host CLI is installed locally at `tools\frida\node_modules\.bin\frida.cmd` and pinned to `17.27.5`.
+- The matching arm64 server asset and hash above were located and verified.
+- The target package and ADB reverse mappings were already installed and active.
+- `su -c id`, and even ordinary shell commands containing `su`, blocked without output on `192.168.5.102:5555`; normal ADB commands such as `get-state` remained responsive.
+- Because root execution is required to deploy the server, Frida injection was not attempted and no game traffic was captured.
+- The interrupted deployment did not create a server process, a Frida server file, or a new ADB forward. Do not retry root commands until KernelSu authorization is restored interactively.
+
+Alternative evidence collection while root is unavailable:
+
+1. Run the read-only `/proc` socket observer on an already running, operator-launched game.
+2. Capture screenshots and operator timestamps for UI states.
+3. Confirm the local service identity and `/health` state, but do not treat internal HTTP tests as game-protocol evidence.
+4. Revisit Frida only after an operator confirms KernelSu grants shell access and `su -c id` returns promptly.
+
 Allowed deployment surface, if explicitly approved:
 
 - Place the server binary in an operator-chosen temporary location, such as `/data/local/tmp/frida-server`.

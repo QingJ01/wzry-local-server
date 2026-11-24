@@ -14,12 +14,33 @@ function Assert-True {
 
 $socketScript = Join-Path $ProjectRoot 'tools\Observe-ProcessSockets.ps1'
 $fridaScript = Join-Path $ProjectRoot 'tools\frida\wzry-network.js'
+$fridaRunner = Join-Path $ProjectRoot 'tools\frida\Run-NetworkCapture.ps1'
+$fridaPackage = Join-Path $ProjectRoot 'tools\frida\package.json'
 $il2cppAnalyzer = Join-Path $ProjectRoot 'tools\analyze_il2cpp.mjs'
 $planPath = Join-Path $ProjectRoot 'reports\protocol_capture_plan.md'
 $runbookPath = Join-Path $ProjectRoot 'reports\dynamic_capture_runbook.md'
 
-foreach ($path in @($socketScript, $fridaScript, $il2cppAnalyzer, $planPath, $runbookPath)) {
+foreach ($path in @($socketScript, $fridaScript, $fridaRunner, $fridaPackage, $il2cppAnalyzer, $planPath, $runbookPath)) {
     Assert-True (Test-Path -LiteralPath $path -PathType Leaf) "Required file missing: $path"
+}
+
+$fridaPackageContent = Get-Content -Raw -LiteralPath $fridaPackage | ConvertFrom-Json
+Assert-True ($fridaPackageContent.dependencies.frida -eq '17.27.5') "Frida dependency must be pinned to 17.27.5"
+
+$fridaRunnerErrors = @()
+[System.Management.Automation.Language.Parser]::ParseFile($fridaRunner, [ref]$null, [ref]$fridaRunnerErrors) | Out-Null
+Assert-True ($fridaRunnerErrors.Count -eq 0) "Run-NetworkCapture.ps1 has $($fridaRunnerErrors.Count) parser error(s)"
+$fridaRunnerContent = Get-Content -Raw -LiteralPath $fridaRunner
+foreach ($requiredRunnerToken in @(
+    "'^192\.168\.5\.102:5555$'",
+    '$DeviceServerPath = ''/data/local/tmp/wzry-frida-server-17.27.5''',
+    '-l 127.0.0.1:$ServerPort',
+    "'forward', '--remove'",
+    '"tcp:$ServerPort"',
+    'rm -f $DeviceServerPath',
+    'Stop-Process -Id $process.Id -Force'
+)) {
+    Assert-True ($fridaRunnerContent.Contains($requiredRunnerToken)) "Frida runner must implement safety token: $requiredRunnerToken"
 }
 
 node --check $il2cppAnalyzer
