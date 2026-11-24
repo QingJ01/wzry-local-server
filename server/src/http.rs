@@ -7,7 +7,10 @@ pub type RouteResult = Result<serde_json::Value, RouteError>;
 #[derive(Clone)]
 pub enum RequestHandler<'a> {
     Store(&'a Arc<dyn Store>),
-    Services(&'a crate::domain::AppServices),
+    Services {
+        services: &'a crate::domain::AppServices,
+        store: Option<&'a Arc<dyn Store>>,
+    },
 }
 
 #[derive(Clone, Copy)]
@@ -38,7 +41,7 @@ pub struct Health {
 fn store<'a>(handler: &'a RequestHandler<'_>) -> Option<&'a Arc<dyn Store>> {
     match handler {
         RequestHandler::Store(store) => Some(store),
-        RequestHandler::Services(_) => None,
+        RequestHandler::Services { store, .. } => *store,
     }
 }
 
@@ -169,9 +172,12 @@ pub fn route_with_handler(
         [method, path] if method == "GET" && path == "/debug/observations" => {
             let store = match handler {
                 RequestHandler::Store(store) => store,
-                RequestHandler::Services(_services) => {
+                RequestHandler::Services { store: None, .. } => {
                     return Err(RouteError::NotFound);
                 }
+                RequestHandler::Services {
+                    store: Some(store), ..
+                } => store,
             };
             let observations = store
                 .observations()
@@ -217,7 +223,7 @@ fn route_domain(
     handler: &RequestHandler<'_>,
 ) -> Result<serde_json::Value, RouteError> {
     let services = match handler {
-        RequestHandler::Services(services) => services,
+        RequestHandler::Services { services, .. } => services,
         RequestHandler::Store(_) => return Err(RouteError::NotFound),
     };
     let parts: Vec<_> = split_path(request);

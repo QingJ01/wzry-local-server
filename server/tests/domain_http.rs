@@ -34,7 +34,10 @@ fn account_register_login_and_profile_flow() {
             Some(r#"{"username":"qingj","password":"secret"}"#),
         ),
         AppState::default(),
-        &RequestHandler::Services(&app),
+        &RequestHandler::Services {
+            services: &app,
+            store: None,
+        },
     )
     .unwrap();
     assert_eq!(register["username"], "qingj");
@@ -48,7 +51,10 @@ fn account_register_login_and_profile_flow() {
             Some(r#"{"username":"qingj","password":"secret"}"#),
         ),
         AppState::default(),
-        &RequestHandler::Services(&app),
+        &RequestHandler::Services {
+            services: &app,
+            store: None,
+        },
     )
     .unwrap();
     let token = login["token"].as_str().unwrap();
@@ -57,7 +63,10 @@ fn account_register_login_and_profile_flow() {
     let profile = wzry_local_server::http::route_with_handler(
         &request("GET", "/accounts/me", Some(token), None),
         AppState::default(),
-        &RequestHandler::Services(&app),
+        &RequestHandler::Services {
+            services: &app,
+            store: None,
+        },
     )
     .unwrap();
     assert_eq!(profile["username"], "qingj");
@@ -71,13 +80,19 @@ fn duplicate_account_is_rejected() {
     wzry_local_server::http::route_with_handler(
         &request("POST", "/accounts/register", None, Some(body)),
         AppState::default(),
-        &RequestHandler::Services(&app),
+        &RequestHandler::Services {
+            services: &app,
+            store: None,
+        },
     )
     .unwrap();
     let error = wzry_local_server::http::route_with_handler(
         &request("POST", "/accounts/register", None, Some(body)),
         AppState::default(),
-        &RequestHandler::Services(&app),
+        &RequestHandler::Services {
+            services: &app,
+            store: None,
+        },
     )
     .unwrap_err();
     let response = response_for(Err(error));
@@ -98,7 +113,10 @@ fn battle_room_ready_start_frame_and_settle_flow() {
             Some(r#"{"mode":"ranked"}"#),
         ),
         AppState::default(),
-        &RequestHandler::Services(&app),
+        &RequestHandler::Services {
+            services: &app,
+            store: None,
+        },
     )
     .unwrap();
     let room_id = room["id"].as_u64().unwrap();
@@ -112,7 +130,10 @@ fn battle_room_ready_start_frame_and_settle_flow() {
             Some(&json_body(serde_json::json!({ "roomId": room_id }))),
         ),
         AppState::default(),
-        &RequestHandler::Services(&app),
+        &RequestHandler::Services {
+            services: &app,
+            store: None,
+        },
     )
     .unwrap();
 
@@ -127,7 +148,10 @@ fn battle_room_ready_start_frame_and_settle_flow() {
                 )),
             ),
             AppState::default(),
-            &RequestHandler::Services(&app),
+            &RequestHandler::Services {
+                services: &app,
+                store: None,
+            },
         )
         .unwrap();
     }
@@ -140,7 +164,10 @@ fn battle_room_ready_start_frame_and_settle_flow() {
             Some(&json_body(serde_json::json!({ "roomId": room_id }))),
         ),
         AppState::default(),
-        &RequestHandler::Services(&app),
+        &RequestHandler::Services {
+            services: &app,
+            store: None,
+        },
     )
     .unwrap();
     let battle_id = battle["id"].as_u64().unwrap();
@@ -159,7 +186,10 @@ fn battle_room_ready_start_frame_and_settle_flow() {
             }))),
         ),
         AppState::default(),
-        &RequestHandler::Services(&app),
+        &RequestHandler::Services {
+            services: &app,
+            store: None,
+        },
     )
     .unwrap();
 
@@ -175,7 +205,10 @@ fn battle_room_ready_start_frame_and_settle_flow() {
             }))),
         ),
         AppState::default(),
-        &RequestHandler::Services(&app),
+        &RequestHandler::Services {
+            services: &app,
+            store: None,
+        },
     )
     .unwrap();
     assert_eq!(settled["state"], "settled");
@@ -189,7 +222,10 @@ fn battle_room_ready_start_frame_and_settle_flow() {
             Some(&json_body(serde_json::json!({ "battleId": battle_id }))),
         ),
         AppState::default(),
-        &RequestHandler::Services(&app),
+        &RequestHandler::Services {
+            services: &app,
+            store: None,
+        },
     )
     .unwrap();
     assert_eq!(battle_view["frames"].as_array().unwrap().len(), 1);
@@ -203,7 +239,10 @@ fn shop_purchase_updates_balance_inventory_and_orders() {
     let items = wzry_local_server::http::route_with_handler(
         &request("GET", "/shop/items", None, None),
         AppState::default(),
-        &RequestHandler::Services(&app),
+        &RequestHandler::Services {
+            services: &app,
+            store: None,
+        },
     )
     .unwrap();
     assert_eq!(items["items"].as_array().unwrap().len(), 3);
@@ -216,7 +255,10 @@ fn shop_purchase_updates_balance_inventory_and_orders() {
             Some(r#"{"itemId":"hero","quantity":2}"#),
         ),
         AppState::default(),
-        &RequestHandler::Services(&app),
+        &RequestHandler::Services {
+            services: &app,
+            store: None,
+        },
     )
     .unwrap();
     assert_eq!(order["status"], "completed");
@@ -225,7 +267,10 @@ fn shop_purchase_updates_balance_inventory_and_orders() {
     let profile = wzry_local_server::http::route_with_handler(
         &request("GET", "/shop/profile", Some(&token), None),
         AppState::default(),
-        &RequestHandler::Services(&app),
+        &RequestHandler::Services {
+            services: &app,
+            store: None,
+        },
     )
     .unwrap();
     assert_eq!(profile["balance"], 400);
@@ -239,7 +284,10 @@ fn shop_purchase_updates_balance_inventory_and_orders() {
             Some(r#"{"itemId":"hero","quantity":100}"#),
         ),
         AppState::default(),
-        &RequestHandler::Services(&app),
+        &RequestHandler::Services {
+            services: &app,
+            store: None,
+        },
     )
     .unwrap_err();
     let response = response_for(Err(error));
@@ -257,7 +305,10 @@ fn account_battle_and_shop_requests_require_valid_token() {
         let error = wzry_local_server::http::route_with_handler(
             &request(method, path, None, body),
             AppState::default(),
-            &RequestHandler::Services(&app),
+            &RequestHandler::Services {
+                services: &app,
+                store: None,
+            },
         )
         .unwrap_err();
         let response = response_for(Err(error));
@@ -277,7 +328,10 @@ fn login(app: &AppServices, username: &str) -> String {
             }))),
         ),
         AppState::default(),
-        &RequestHandler::Services(app),
+        &RequestHandler::Services {
+            services: app,
+            store: None,
+        },
     );
     let _ = register;
     let response = wzry_local_server::http::route_with_handler(
@@ -291,7 +345,10 @@ fn login(app: &AppServices, username: &str) -> String {
             }))),
         ),
         AppState::default(),
-        &RequestHandler::Services(app),
+        &RequestHandler::Services {
+            services: app,
+            store: None,
+        },
     )
     .unwrap();
     response["token"].as_str().unwrap().to_string()

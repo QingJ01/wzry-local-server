@@ -45,7 +45,8 @@ fn main() {
         match listener.accept() {
             Ok((mut stream, _)) => {
                 let services = Arc::clone(&services);
-                std::thread::spawn(move || handle_http_connection(&mut stream, services));
+                let store = Arc::clone(&store);
+                std::thread::spawn(move || handle_http_connection(&mut stream, services, store));
             }
             Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
                 std::thread::sleep(std::time::Duration::from_millis(10));
@@ -59,7 +60,11 @@ fn main() {
     println!("Server stopped");
 }
 
-fn handle_http_connection(stream: &mut TcpStream, services: Arc<AppServices>) {
+fn handle_http_connection(
+    stream: &mut TcpStream,
+    services: Arc<AppServices>,
+    store: Arc<dyn Store>,
+) {
     stream
         .set_read_timeout(Some(std::time::Duration::from_secs(5)))
         .unwrap_or_default();
@@ -77,7 +82,10 @@ fn handle_http_connection(stream: &mut TcpStream, services: Arc<AppServices>) {
         }
     };
     let state = AppState::default();
-    let handler = http::RequestHandler::Services(&services);
+    let handler = http::RequestHandler::Services {
+        services: &services,
+        store: Some(&store),
+    };
     let result = http::route_with_handler(&request.bytes, state, &handler);
     let status = response_status(&result);
     let response = http::response_for(result);
