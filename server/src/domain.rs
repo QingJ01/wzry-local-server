@@ -1,3 +1,4 @@
+use crate::http::GameEvents;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::collections::HashMap;
@@ -16,6 +17,8 @@ struct DomainState {
     accounts: HashMap<u64, Account>,
     usernames: HashMap<String, u64>,
     tokens: HashMap<String, u64>,
+    local_tokens: HashMap<String, u64>,
+    default_local_account_id: Option<u64>,
     rooms: HashMap<u64, Room>,
     battles: HashMap<u64, Battle>,
     shop_items: HashMap<&'static str, ShopItem>,
@@ -217,6 +220,59 @@ impl AppServices {
             .get(token)
             .copied()
             .ok_or(DomainError::Unauthorized)
+    }
+
+    pub fn bind_local_session(&self, account_id: u64) -> Result<serde_json::Value, DomainError> {
+        let mut state = self.inner.lock().unwrap();
+        if !state.accounts.contains_key(&account_id) {
+            return Err(DomainError::NotFound("account not found".into()));
+        }
+        let token = format!("local-{account_id}-{}", self.next_id());
+        state.local_tokens.insert(token.clone(), account_id);
+        state.default_local_account_id = Some(account_id);
+        Ok(json!({ "localToken": token, "accountId": account_id }))
+    }
+
+    pub fn game_session_account_id(
+        &self,
+        token: Option<&str>,
+        allow_default_local_session: bool,
+    ) -> Result<u64, DomainError> {
+        let state = self.inner.lock().unwrap();
+        if let Some(token) = token {
+            if let Some(account_id) = state.tokens.get(token).copied() {
+                return Ok(account_id);
+            }
+            if let Some(account_id) = state.local_tokens.get(token).copied() {
+                return Ok(account_id);
+            }
+            return Err(DomainError::Unauthorized);
+        }
+        if allow_default_local_session {
+            if let Some(account_id) = state.default_local_account_id {
+                return Ok(account_id);
+            }
+        }
+        Err(DomainError::Unauthorized)
+    }
+
+    pub fn game_events(
+        &self,
+        account_id: u64,
+        _after: u64,
+        epoch: u64,
+    ) -> Result<GameEvents, DomainError> {
+        let state = self.inner.lock().unwrap();
+        if !state.accounts.contains_key(&account_id) {
+            return Err(DomainError::NotFound("account not found".into()));
+        }
+        Ok(GameEvents {
+            epoch,
+            events: Vec::new(),
+            reset_required: false,
+            room: None,
+            messages: Vec::new(),
+        })
     }
 
     pub fn profile(&self, token: Option<&str>) -> Result<serde_json::Value, DomainError> {

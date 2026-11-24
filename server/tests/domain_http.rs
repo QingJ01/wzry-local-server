@@ -1,7 +1,7 @@
 use std::sync::Arc;
 use wzry_local_server::http::response_for;
 use wzry_local_server::http::RequestHandler;
-use wzry_local_server::{AppServices, AppState, MemoryStore};
+use wzry_local_server::{AppServices, AppState, MemoryStore, Store};
 
 fn services() -> AppServices {
     AppServices::new(Arc::new(MemoryStore::new()))
@@ -21,6 +21,29 @@ fn request(method: &str, path: &str, token: Option<&str>, body: Option<&str>) ->
 
 fn json_body(value: serde_json::Value) -> String {
     serde_json::to_string(&value).unwrap()
+}
+
+fn app_state(allow_loopback_game_sessions: bool) -> AppState {
+    AppState {
+        allow_loopback_game_sessions,
+        ..AppState::default()
+    }
+}
+
+fn route(
+    app: &AppServices,
+    state: AppState,
+    request: &[u8],
+) -> Result<serde_json::Value, wzry_local_server::http::RouteError> {
+    let store = Arc::new(MemoryStore::new()) as Arc<dyn Store>;
+    wzry_local_server::http::route_with_handler(
+        request,
+        state,
+        &RequestHandler::Services {
+            services: app,
+            store: Some(&store),
+        },
+    )
 }
 
 #[test]
@@ -97,6 +120,97 @@ fn duplicate_account_is_rejected() {
     .unwrap_err();
     let response = response_for(Err(error));
     assert!(response.starts_with(b"HTTP/1.1 409"));
+}
+
+#[test]
+fn game_event_polling_requires_a_valid_session() {
+    let app = services();
+    let token = login(&app, "polling");
+
+    let response = route(
+        &app,
+        app_state(true),
+        &request("GET", "/game/events?after=0&epoch=old", Some(&token), None),
+    )
+    .unwrap();
+    assert_eq!(response["epoch"], 1);
+    assert_eq!(response["events"], serde_json::json!([]));
+    assert_eq!(response["messages"], serde_json::json!([]));
+    assert_eq!(response["resetRequired"], false);
+    assert_eq!(response["room"], serde_json::json!(null));
+
+    let query_response = route(
+        &app,
+        app_state(true),
+        &request(
+            "GET",
+            &format!("/game/events?after=0&token={token}"),
+            None,
+            None,
+        ),
+    )
+    .unwrap();
+    assert_eq!(query_response["epoch"], 1);
+
+    let error = route(
+        &app,
+        app_state(true),
+        &request("GET", "/game/events?after=0", None, None),
+    )
+    .unwrap_err();
+    assert!(response_for(Err(error)).starts_with(b"HTTP/1.1 401"));
+}
+
+#[test]
+fn local_game_session_supports_query_and_default_polling() {
+    let app = services();
+    login(&app, "local");
+    let account_id = 1;
+    let local = route(
+        &app,
+        app_state(true),
+        &request("POST", "/local/session", None, Some(r#"{"accountId":1}"#)),
+    )
+    .unwrap();
+    assert_eq!(local["accountId"], account_id);
+    let local_token = local["localToken"].as_str().unwrap();
+
+    let query_response = route(
+        &app,
+        app_state(true),
+        &request(
+            "GET",
+            &format!("/game/events?after=0&localToken={local_token}"),
+            None,
+            None,
+        ),
+    )
+    .unwrap();
+    assert_eq!(query_response["epoch"], 1);
+
+    let default_response = route(
+        &app,
+        app_state(true),
+        &request("GET", "/game/events?after=0", None, None),
+    )
+    .unwrap();
+    assert_eq!(default_response["epoch"], 1);
+
+    let disabled_error = route(
+        &app,
+        app_state(false),
+        &request("GET", "/game/events?after=0", None, None),
+    )
+    .unwrap_err();
+    assert!(response_for(Err(disabled_error)).starts_with(b"HTTP/1.1 401"));
+
+    let invalid_query_error = route(
+        &app,
+        app_state(true),
+        &request("GET", "/game/events?after=x", None, None),
+    )
+    .unwrap_err();
+    assert!(response_for(Err(invalid_query_error)).starts_with(b"HTTP/1.1 400"));
 }
 
 #[test]

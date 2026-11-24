@@ -18,6 +18,7 @@ pub struct AppState {
     pub http_body_bytes: usize,
     pub max_observations: usize,
     pub epoch: u64,
+    pub allow_loopback_game_sessions: bool,
 }
 
 impl AppState {
@@ -38,6 +39,7 @@ impl Default for AppState {
             http_body_bytes: 65536,
             max_observations: 1000,
             epoch: 1,
+            allow_loopback_game_sessions: true,
         }
     }
 }
@@ -77,6 +79,12 @@ pub struct GameEvents {
     pub messages: Vec<serde_json::Value>,
 }
 
+#[derive(Debug, Deserialize)]
+pub struct LocalSessionRequest {
+    #[serde(rename = "accountId")]
+    pub account_id: u64,
+}
+
 #[derive(Debug, Serialize)]
 pub struct ErrorBody {
     pub error: ErrorDetail,
@@ -96,6 +104,7 @@ pub enum RouteError {
     InvalidJson,
     ProtocolNotImplemented,
     Unauthorized,
+    InvalidQuery,
     Conflict(String),
     InvalidDomainRequest(String),
 }
@@ -109,6 +118,7 @@ pub fn response_status(result: &Result<serde_json::Value, RouteError>) -> u16 {
         Err(RouteError::InvalidJson) => 400,
         Err(RouteError::ProtocolNotImplemented) => 501,
         Err(RouteError::Unauthorized) => 401,
+        Err(RouteError::InvalidQuery) => 400,
         Err(RouteError::Conflict(_)) => 409,
         Err(RouteError::InvalidDomainRequest(_)) => 400,
     }
@@ -132,6 +142,9 @@ pub fn response_for(result: Result<serde_json::Value, RouteError>) -> Vec<u8> {
         }
         Err(RouteError::Unauthorized) => {
             error_response(401, "UNAUTHORIZED", "authentication required")
+        }
+        Err(RouteError::InvalidQuery) => {
+            error_response(400, "INVALID_QUERY", "query parameters are invalid")
         }
         Err(RouteError::Conflict(message)) => error_response(409, "CONFLICT", &message),
         Err(RouteError::InvalidDomainRequest(message)) => {
@@ -189,8 +202,43 @@ pub fn route_with_handler(
     handler: &RequestHandler<'_>,
 ) -> Result<serde_json::Value, RouteError> {
     let parts: Vec<_> = split_path(request);
-    if let Some(game_events) = game_events_route(&parts, state) {
-        return game_events;
+    match parts.as_slice() {
+        [method, path] if method == "POST" && path == "/local/session" => {
+            let services = services(handler).ok_or(RouteError::NotFound)?;
+            let body = request_body(request).ok_or(RouteError::BodyTooLarge)?;
+            if body.len() > state.http_body_bytes {
+                return Err(RouteError::BodyTooLarge);
+            }
+            let request: LocalSessionRequest =
+                serde_json::from_slice(body).map_err(|_| RouteError::InvalidJson)?;
+            let response = services
+                .bind_local_session(request.account_id)
+                .map_err(domain_error)?;
+            return Ok(serde_json::to_value(response).unwrap());
+        }
+        [method, path] if method == "GET" && game_events_path(path).is_some() => {
+            let query = game_events_path(path).unwrap();
+            let services = services(handler).ok_or(RouteError::NotFound)?;
+            let after = query_value(query, "after")
+                .and_then(|value| value.parse::<u64>().ok())
+                .ok_or(RouteError::InvalidQuery)?;
+            let token = bearer_token(request)
+                .or_else(|| query_token(query, "token"))
+                .or_else(|| {
+                    state
+                        .allow_loopback_game_sessions
+                        .then(|| loopback_session_token(query))
+                        .flatten()
+                });
+            let account_id = services
+                .game_session_account_id(token.as_deref(), state.allow_loopback_game_sessions)
+                .map_err(domain_error)?;
+            let response = services
+                .game_events(account_id, after, state.epoch)
+                .map_err(domain_error)?;
+            return Ok(serde_json::to_value(response).unwrap());
+        }
+        _ => {}
     }
     match parts.as_slice() {
         [method, path] if method == "GET" && path == "/health" => {
@@ -243,31 +291,33 @@ pub fn route_with_handler(
     }
 }
 
-fn game_events_route(
-    parts: &[String],
-    state: AppState,
-) -> Option<Result<serde_json::Value, RouteError>> {
-    if parts.first().map(String::as_str) != Some("GET") {
-        return None;
+fn services<'a>(handler: &'a RequestHandler<'_>) -> Option<&'a crate::domain::AppServices> {
+    match handler {
+        RequestHandler::Services { services, .. } => Some(services),
+        RequestHandler::Store(_) => None,
     }
-    let path = parts.get(1)?.split('?').next()?.to_string();
-    if path != "/game/events" {
-        return None;
-    }
+}
 
-    let _query = parts
-        .get(1)
-        .and_then(|value| value.split_once('?'))
-        .map(|(_, query)| query.to_string())
-        .unwrap_or_default();
-    let response = GameEvents {
-        epoch: state.epoch,
-        events: Vec::new(),
-        reset_required: false,
-        room: None,
-        messages: Vec::new(),
-    };
-    Some(Ok(serde_json::to_value(response).unwrap()))
+fn game_events_path(path: &str) -> Option<&str> {
+    let (path, query) = path.split_once('?')?;
+    (path == "/game/events").then_some(query)
+}
+
+fn query_value<'a>(query: &'a str, name: &str) -> Option<&'a str> {
+    query
+        .split('&')
+        .find_map(|pair| pair.split_once('=').filter(|(key, _)| *key == name))
+        .map(|(_, value)| value)
+}
+
+fn query_token(query: &str, name: &str) -> Option<String> {
+    query_value(query, name)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
+}
+
+fn loopback_session_token(query: &str) -> Option<String> {
+    query_token(query, "localToken")
 }
 
 fn route_domain(
