@@ -1,0 +1,36 @@
+# wzry-local-server
+
+Rust 本地观测服务端，为后续客户端协议逆向和本地闭环提供最小 HTTP/TCP 基础。
+
+## 运行
+
+```powershell
+cargo run --release
+```
+
+默认监听：
+
+- HTTP: `127.0.0.1:19620`
+- Frame TCP: `127.0.0.1:19621`
+
+可用环境变量覆盖地址：
+
+```powershell
+$env:WZRY_HTTP_ADDR = "127.0.0.1:19620"
+$env:WZRY_FRAME_ADDR = "127.0.0.1:19621"
+```
+
+## 接口
+
+- `GET /health`：服务健康状态。
+- `POST /game`：观测 `{ "methodId": ..., "body": ... }`，未知协议返回 `501` 并记录。
+- `GET /debug/observations`：只读查看 HTTP/TCP 观测记录。
+
+## 测试
+
+```powershell
+cargo fmt --check
+cargo test
+```
+
+当前测试覆盖帧分片/粘包/超限、HTTP JSON 错误、Content-Length 精确读取、并发客户端和观测接口。

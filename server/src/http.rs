@@ -55,6 +55,17 @@ pub enum RouteError {
     ProtocolNotImplemented,
 }
 
+pub fn response_status(result: &Result<serde_json::Value, RouteError>) -> u16 {
+    match result {
+        Ok(_) => 200,
+        Err(RouteError::NotFound) => 404,
+        Err(RouteError::MethodNotAllowed) => 405,
+        Err(RouteError::BodyTooLarge) => 413,
+        Err(RouteError::InvalidJson) => 400,
+        Err(RouteError::ProtocolNotImplemented) => 501,
+    }
+}
+
 pub fn response_for(result: Result<serde_json::Value, RouteError>) -> Vec<u8> {
     let (status, payload): (u16, serde_json::Value) = match result {
         Ok(value) => (200, value),
@@ -118,6 +129,23 @@ pub fn route(
     match parts.as_slice() {
         [method, path] if method == "GET" && path == "/health" => {
             Ok(serde_json::to_value(health(state)).unwrap())
+        }
+        [method, path] if method == "GET" && path == "/debug/observations" => {
+            let observations = store
+                .observations()
+                .into_iter()
+                .map(|observation| {
+                    serde_json::json!({
+                        "channel": observation.channel,
+                        "methodId": observation.method_id,
+                        "command": observation.command,
+                        "sequence": observation.sequence,
+                        "bytes": observation.bytes,
+                        "status": observation.status,
+                    })
+                })
+                .collect::<Vec<_>>();
+            Ok(serde_json::json!({ "observations": observations }))
         }
         [method, path] if method == "POST" && path == "/game" => {
             let body = request_body(request).ok_or(RouteError::BodyTooLarge)?;

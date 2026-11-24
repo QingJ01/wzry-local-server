@@ -1,5 +1,6 @@
 pub mod frame;
 pub mod http;
+pub mod read_request;
 pub mod store;
 
 pub use frame::{Frame, FrameConfig, FrameParser};

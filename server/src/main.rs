@@ -1,12 +1,18 @@
 use std::io::{Read, Write};
 use std::net::{TcpListener, TcpStream};
 use std::sync::Arc;
-use wzry_local_server::{AppState, FrameConfig, FrameParser, MemoryStore, Store};
+use wzry_local_server::http::response_status;
+use wzry_local_server::read_request::RequestReader;
+use wzry_local_server::{http, AppState, FrameConfig, FrameParser, MemoryStore, Store};
 
 fn main() {
     let store = Arc::new(MemoryStore::new());
-    let listener = TcpListener::bind("127.0.0.1:19620").expect("bind HTTP server");
-    let frame_listener = TcpListener::bind("127.0.0.1:19621").expect("bind frame server");
+    let http_address = std::env::var("WZRY_HTTP_ADDR").unwrap_or_else(|_| "127.0.0.1:19620".into());
+    let frame_address =
+        std::env::var("WZRY_FRAME_ADDR").unwrap_or_else(|_| "127.0.0.1:19621".into());
+    let listener = TcpListener::bind(http_address).expect("bind HTTP server");
+    let frame_listener = TcpListener::bind(frame_address).expect("bind frame server");
+
     println!("HTTP listening on {}", listener.local_addr().unwrap());
     println!(
         "Frame listening on {}",
@@ -14,30 +20,65 @@ fn main() {
     );
 
     let frame_store = Arc::clone(&store);
-    std::thread::spawn(move || {
-        for connection in frame_listener.incoming() {
-            if let Ok(mut stream) = connection {
-                let store = Arc::clone(&frame_store);
-                std::thread::spawn(move || handle_frame_connection(&mut stream, store));
+    let frame_thread = std::thread::spawn(move || {
+        frame_listener
+            .set_nonblocking(true)
+            .expect("set frame listener nonblocking");
+        loop {
+            match frame_listener.accept() {
+                Ok((mut stream, _)) => {
+                    let store = Arc::clone(&frame_store);
+                    std::thread::spawn(move || handle_frame_connection(&mut stream, store));
+                }
+                Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                    std::thread::sleep(std::time::Duration::from_millis(10));
+                }
+                Err(_) => break,
             }
         }
     });
 
-    for connection in listener.incoming() {
-        if let Ok(mut stream) = connection {
-            let store = Arc::clone(&store);
-            std::thread::spawn(move || handle_http_connection(&mut stream, store));
+    loop {
+        match listener.accept() {
+            Ok((mut stream, _)) => {
+                let store = Arc::clone(&store);
+                std::thread::spawn(move || handle_http_connection(&mut stream, store));
+            }
+            Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
+                std::thread::sleep(std::time::Duration::from_millis(10));
+            }
+            Err(_) => break,
         }
     }
+
+    // Drop the listeners; process shutdown is driven by Ctrl+C or process termination.
+    frame_thread.join().unwrap();
+    println!("Server stopped");
 }
 
 fn handle_http_connection(stream: &mut TcpStream, store: Arc<dyn Store>) {
-    let mut request = [0u8; 65536];
-    let read = stream.read(&mut request).unwrap_or(0);
+    stream
+        .set_read_timeout(Some(std::time::Duration::from_secs(5)))
+        .unwrap_or_default();
+    let mut request_reader = RequestReader::new(65536);
+    let mut buffer = [0u8; 4096];
+    let request = loop {
+        let read = stream.read(&mut buffer).unwrap_or(0);
+        if read == 0 {
+            return;
+        }
+        match request_reader.feed(&buffer[..read]) {
+            Ok(Some(request)) => break request,
+            Ok(None) => continue,
+            Err(_) => return,
+        }
+    };
     let state = AppState::default();
-    let result = wzry_local_server::route(&request[..read], state, &store);
-    let response = wzry_local_server::http::response_for(result);
+    let result = wzry_local_server::route(&request.bytes, state, &store);
+    let status = response_status(&result);
+    let response = http::response_for(result);
     let _ = stream.write_all(&response);
+    println!("HTTP request completed with status {}", status);
 }
 
 fn handle_frame_connection(stream: &mut TcpStream, store: Arc<dyn Store>) {

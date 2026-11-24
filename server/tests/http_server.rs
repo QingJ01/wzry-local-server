@@ -37,6 +37,27 @@ fn unknown_route_returns_json_404() {
 }
 
 #[test]
+fn debug_observations_are_read_only() {
+    let store: Arc<dyn Store> = Arc::new(MemoryStore::new());
+    store.add_observation(wzry_local_server::Observation {
+        channel: "http",
+        method_id: Some(123),
+        command: None,
+        sequence: None,
+        bytes: 2,
+        status: 501,
+    });
+    let response = wzry_local_server::route(
+        b"GET /debug/observations HTTP/1.1\r\n\r\n",
+        AppState::default(),
+        &store,
+    )
+    .unwrap();
+    assert_eq!(response["observations"][0]["methodId"], 123);
+    assert_eq!(store.observation_count(), 1);
+}
+
+#[test]
 fn unknown_protocol_returns_501_and_observes() {
     let store: Arc<dyn Store> = Arc::new(MemoryStore::new());
     let request =
