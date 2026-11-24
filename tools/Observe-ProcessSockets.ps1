@@ -39,7 +39,7 @@ $processIdText = (Invoke-AdbShell "pidof $Package").Trim()
 if (-not $processIdText) {
     throw "Package $Package is not running."
 }
-$processIds = $processIdText -split '\s+' | Where-Object { $_ -match '^\d+$' }
+$processIds = @($processIdText -split '\s+' | Where-Object { $_ -match '^\d+$' })
 if ($processIds.Count -ne 1) {
     throw "Expected one $Package process, found $($processIds.Count): $processIdText"
 }
