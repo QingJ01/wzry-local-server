@@ -1,0 +1,25 @@
+{
+  "nativePatches": [
+    {
+      "entryPath": "lib/arm64-v8a/libapollo.so",
+      "offset": 5191308,
+      "originalBytesHex": "65224039",
+      "replacementBytesHex": "52800005",
+      "evidence": "reports/version_gate_native_patch.md#0x4f368c-isNeedUpdating"
+    },
+    {
+      "entryPath": "lib/arm64-v8a/libapollo.so",
+      "offset": 5191312,
+      "originalBytesHex": "66264039",
+      "replacementBytesHex": "52800006",
+      "evidence": "reports/version_gate_native_patch.md#0x4f3690-isForcedUpdating"
+    },
+    {
+      "entryPath": "lib/arm64-v8a/libapollo.so",
+      "offset": 5191320,
+      "originalBytesHex": "672A4039",
+      "replacementBytesHex": "52800007",
+      "evidence": "reports/version_gate_native_patch.md#0x4f3698-isAppUpdating"
+    }
+  ]
+}

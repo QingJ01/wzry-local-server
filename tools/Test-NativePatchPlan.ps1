@@ -284,14 +284,11 @@ Assert-Throws {
 } 'Native patch must reject non-lib entry' 'only target lib/* entries'
 
 $buildScriptAst = [System.Management.Automation.Language.Parser]::ParseFile($scriptPath, [ref]$null, [ref]$null)
-$entryMapAssignment = $buildScriptAst.Find({
-    param($node)
-    $node -is [System.Management.Automation.Language.AssignmentStatementAst] -and
-    $node.Left.Extent.Text -eq '$entryMap'
-}, $true)
-Assert-True ($null -ne $entryMapAssignment) 'Build script must preserve the source ZIP entry map'
-Assert-True ($entryMapAssignment.Right.Extent.Text -eq '[ordered]@{}') 'Build script must preserve source ZIP entry order'
-Assert-True ((Get-Content -Raw -LiteralPath $scriptPath).Contains('$entryMap.Keys')) 'Build script must rebuild entries in source order'
+$scriptRaw = Get-Content -Raw -LiteralPath $scriptPath
+Assert-True ($scriptRaw.Contains('foreach ($entry in $archive.Entries)')) 'Build script must iterate source entries in order'
+Assert-True ($scriptRaw.Contains('Write-EntryStream')) 'Build script must stream-copy unmodified entries'
+Assert-True ($scriptRaw.Contains('Write-EntryBytes')) 'Build script must write patched entries'
+Assert-True ($scriptRaw.Contains('$patchedByEntry')) 'Build script must track patched entry bytes'
     Assert-True ((Get-Content -Raw -LiteralPath $scriptPath).Contains('Get-EntryStorePolicy')) 'Build script must write sensitive entries with ZIP Store method'
     Assert-True ((Get-Content -Raw -LiteralPath $scriptPath).Contains('CompressionMethod')) 'Build script must enforce the ZIP compression method'
 Assert-True ((Get-Content -Raw -LiteralPath $scriptPath).Contains("EntryPath -eq 'resources.arsc'")) 'Build script must store resources.arsc uncompressed'

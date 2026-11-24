@@ -112,6 +112,34 @@ function Write-EntryBytes {
     }
 }
 
+function Write-EntryStream {
+    param(
+        [System.IO.Compression.ZipArchive]$Archive,
+        [System.IO.Compression.ZipArchiveEntry]$SourceEntry
+    )
+    $entry = $Archive.CreateEntry($SourceEntry.FullName, (Get-EntryCompressionLevel $SourceEntry.FullName))
+    if (Get-EntryStorePolicy $SourceEntry.FullName) {
+        $compressionMethodProperty = [System.IO.Compression.ZipArchiveEntry].GetProperty(
+            'CompressionMethod',
+            [System.Reflection.BindingFlags]::Instance -bor [System.Reflection.BindingFlags]::NonPublic
+        )
+        $compressionMethodProperty.SetValue(
+            $entry,
+            [Enum]::Parse($compressionMethodProperty.PropertyType, 'Stored'),
+            $null
+        )
+    }
+    $source = $SourceEntry.Open()
+    $target = $entry.Open()
+    try {
+        $source.CopyTo($target)
+    }
+    finally {
+        $target.Dispose()
+        $source.Dispose()
+    }
+}
+
 function Assert-CommandPath {
     param([string]$Path, [string]$Name)
     if (-not (Test-Path -LiteralPath $Path -PathType Leaf)) {
@@ -216,23 +244,15 @@ Assert-CommandPath $keytool 'Keytool'
 $stagingApk = "$OutputApk.staging"
 $archive = [System.IO.Compression.ZipFile]::OpenRead($SourceApk)
 try {
-    $entryMap = [ordered]@{}
-    foreach ($entry in $archive.Entries) {
-        $entryMap[$entry.FullName] = Read-EntryBytes $entry
-    }
-}
-finally {
-    $archive.Dispose()
-}
-
-try {
     $patchedByEntry = @{}
+    $patchedEntryBytes = @{}
     foreach ($patchSpec in $patches) {
         if ($patchedByEntry.ContainsKey($patchSpec.entryPath)) {
             $bytes = $patchedByEntry[$patchSpec.entryPath]
         }
         else {
-            $bytes = [byte[]]$entryMap[$patchSpec.entryPath].Clone()
+            $srcEntry = $archive.GetEntry($patchSpec.entryPath)
+            $bytes = [byte[]](Read-EntryBytes $srcEntry).Clone()
         }
         $offset = [int64]$patchSpec.offset
         $replacementBytes = Convert-HexToBytes $patchSpec.replacementBytesHex
@@ -244,12 +264,14 @@ try {
 
     $outputArchive = [System.IO.Compression.ZipFile]::Open($stagingApk, [System.IO.Compression.ZipArchiveMode]::Create)
     try {
-        foreach ($entryPath in $entryMap.Keys) {
-            $bytes = $entryMap[$entryPath]
-            if ($patchedByEntry.ContainsKey($entryPath)) {
-                $bytes = $patchedByEntry[$entryPath]
+        foreach ($entry in $archive.Entries) {
+            if ($patchedByEntry.ContainsKey($entry.FullName)) {
+                Write-EntryBytes $outputArchive $entry.FullName $patchedByEntry[$entry.FullName]
+                $patchedEntryBytes[$entry.FullName] = $patchedByEntry[$entry.FullName]
             }
-            Write-EntryBytes $outputArchive $entryPath $bytes
+            else {
+                Write-EntryStream $outputArchive $entry
+            }
         }
     }
     finally {
@@ -301,13 +323,21 @@ if ($LASTEXITCODE -ne 0) {
 }
 
 $changes = foreach ($patchSpec in $patches) {
+    $sourceArchive = [System.IO.Compression.ZipFile]::OpenRead($SourceApk)
+    try {
+        $srcEntry = $sourceArchive.GetEntry($patchSpec.entryPath)
+        $originalEntryBytes = Read-EntryBytes $srcEntry
+    }
+    finally {
+        $sourceArchive.Dispose()
+    }
     [ordered]@{
         entryPath = $patchSpec.entryPath
         offset = [int64]$patchSpec.offset
         length = (Convert-HexToBytes $patchSpec.originalBytesHex).Length
         evidence = $patchSpec.evidence
-        originalEntrySha256 = Get-BytesSha256 $entryMap[$patchSpec.entryPath]
-        patchedEntrySha256 = Get-BytesSha256 $patchedByEntry[$patchSpec.entryPath]
+        originalEntrySha256 = Get-BytesSha256 $originalEntryBytes
+        patchedEntrySha256 = Get-BytesSha256 $patchedEntryBytes[$patchSpec.entryPath]
     }
 }
 
