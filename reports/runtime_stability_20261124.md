@@ -149,3 +149,31 @@ adb shell am start -W -n com.tencent.tmgp.sgame/.SGameActivity
 ```
 
 If `magisk --denylist` is unavailable on this Magisk build, the equivalent is editing the ZygiskSu denylist `/data/adb/zygisksu/` policy for `sgame`. Will report exact commands before executing E2.
+
+---
+
+# E2 experiment — denylist / root-hide for sgame — 2026-11-24 ~20:25
+
+## Denylist baseline (recorded before any change)
+
+- This device is **KernelSU** (`ksud` + `zygisksu`/Zygisk Next 1.5.0-843), **not Magisk** — `magisk` CLI does not exist, and there is no `magisk --denylist`/`ksud`-equivalent per-app denylist toggle.
+- `/data/adb/zygisksu/denylist_enforce` = `2` → Zygisk Next is already at its strongest policy (`just_umount`), applied to **all** apps at zygote fork.
+- `/data/adb/ksu/.allowlist` (binary KSU profile db) contains `org.frknkrc44.hma_oss` and `com.android.shell` — `com.tencent.tmgp.sgame` is **not** in it (verified `grep -c sgame = 0`), so sgame already gets **no root** by default.
+- `ksud kernel umount` manages only global mount-point entries; there is no per-app list file to add `sgame` to.
+
+## Equivalent-hide verification (in a live sgame process)
+
+- `/proc/<sgame>/mounts` → **0** entries matching `magisk|ksu|lsp|zygisk|frida|/data/adb` → the global `just_umount` denylist is already fully hiding all root/module mount sources from the game.
+- `run-as`/proc checks → sgame cannot `su` (not in allowlist).
+- **But** `/proc/<sgame>/maps` still contains `/system/lib64/libhoudini.so`, `/system/lib64/libnb.so`, `/system/lib64/libnblog.so`, `u:object_r:vendor_houdini_default_prop` — the **Houdini/native-bridge translation surface is still fully visible in-process** and is outside any denylist's reach.
+
+## Result
+
+- **No new persistent change was made** — there was nothing to add: the denylist-equivalent (zygisk `just_umount`) was already global and already verified hiding root/module mounts from sgame, and sgame already had no root grant.
+- Therefore E2 cannot introduce an independent variable on this build; the ~60 s self-SIGKILL proceeds under maximum available hiding.
+- **Rollback: nothing to roll back.** State unchanged from E1 (denylist_enforce still `2`, allowlist unchanged, no kernel umount entry added).
+
+## Updated attribution
+
+- Both `frida presence` (E1) and `root/zygisk mount visibility` (E2) are now **eliminated** as triggers. The remaining, un-maskable detection surface is the **Houdini native bridge itself** (`libhoudini.so`/`libnb.so` in the process maps, `ro.dalvik.vm.isa.arm64=x86_64`, `ro.build.hv.platform=vbox`, `qemu.hw.mainkeys=1`). The app's ~60 s timer kills itself specifically because it is running under ARM→x86 translation on an emulator.
+- Next real lever = **E3**: capture the exact `kill(9)`/`abort` call site in `sgame` via `tools/frida/run-kill-trace.mjs` and neutralize that check in the client patch, or **E4** run the client through the x86-only path instead of arm64/Houdini.
