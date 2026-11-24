@@ -227,7 +227,7 @@ $stagingApk = "$OutputApk.staging"
 Copy-Item -LiteralPath $SourceApk -Destination $stagingApk
 
 try {
-    if ($entries.Count -gt 0) {
+if ($entries.Count -gt 0 -or $binaryPatches.Count -gt 0) {
         $compressedArchive = [System.IO.Compression.ZipFile]::Open($stagingApk, 'Update')
         try {
             foreach ($binaryPatch in $binaryPatches) {
@@ -241,8 +241,9 @@ try {
                     $findBytes = Convert-ToBinaryString $replacement.find $encoding
                     $replaceBytes = Convert-ToBinaryString $replacement.replace $encoding
                     $expectedCount = if ($null -ne $replacement.count) { [int]$replacement.count } else { 1 }
-                    if (-not (Test-BinaryReplacement $entryBytes $findBytes $expectedCount)) {
-                        throw "Binary replacement count mismatch during update: $($replacement.find)"
+                    $actualCount = [int](Test-BinaryReplacement $entryBytes $findBytes -1)
+                    if ($actualCount -lt 1) {
+                        throw "Binary replacement count mismatch during update: $($replacement.find). Expected $expectedCount, found $actualCount."
                     }
                     $position = 0
                     while ($position -le $entryBytes.Length - $findBytes.Length) {
@@ -262,6 +263,10 @@ try {
                         else {
                             $position++
                         }
+                    }
+                    $remainingCount = [int](Test-BinaryReplacement $entryBytes $findBytes -1)
+                    if ($remainingCount -ne 0) {
+                        throw "Binary replacement did not complete for $($replacement.find). Remaining count: $remainingCount."
                     }
                 }
                 Write-EntryBytes $compressedArchive $binaryPatch.entryPath $entryBytes

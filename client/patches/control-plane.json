@@ -12,20 +12,20 @@
       "replacements": [
         {
           "find": "https://hc2.tdm.qq.com:8013/tdm/v2/route",
-          "replace": "http://127.000.000.001:19620/tdm/v2/rout",
+          "replace": "http://127.0.0.1:19620/tdm/v2/route?pad=",
+          "count": 1,
+          "encoding": "utf16"
+        },
+        {
+          "find": "https://cloudctrl.gcloud.qq.com/gtrace/get_traceid_list",
+          "replace": "http://127.0.0.1:19620/gtrace/get_traceid_list?xxxxxxxx",
           "count": 1,
           "encoding": "utf16"
         },
         {
           "find": "https://cloudctrl.gcloud.qq.com",
-          "replace": "http://127.000.000.001:19620xxx",
+          "replace": "http://127.0.0.1:19620/padxxxxx",
           "count": 2,
-          "encoding": "utf16"
-        },
-        {
-          "find": "https://cloudctrl.gcloud.qq.com/gtrace/get_traceid_list",
-          "replace": "http://127.000.000.001:19620/gtrace/get_traceid_listxxx",
-          "count": 1,
           "encoding": "utf16"
         }
       ]
@@ -35,7 +35,7 @@
       "replacements": [
         {
           "find": "https://ap6.ssl.msdk.qq.com",
-          "replace": "http://127.000.000.01:19620",
+          "replace": "http://127.0.0.1:19620/padx",
           "count": 1,
           "encoding": "utf8"
         }

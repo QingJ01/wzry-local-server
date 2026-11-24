@@ -14,7 +14,7 @@ foreach ($patch in $manifest.binaryPatches) {
         if ($replacement.find -eq $replacement.replace) {
             throw "Replacement must change: $($replacement.find)"
         }
-        if ($replacement.replace -notmatch '^http://127\.000\.000\.(?:001|01):19620') {
+        if ($replacement.replace -notmatch '^http://127\.0\.0\.1:19620') {
             throw "Replacement must target ADB reverse loopback: $($replacement.replace)"
         }
         if (-not $replacement.encoding -or $replacement.encoding -notin @('utf8', 'utf16')) {

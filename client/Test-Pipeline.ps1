@@ -82,6 +82,11 @@ Assert-Throws {
     & $buildScript -SourceApk (Join-Path $ProjectRoot 'missing.apk') -OutputApk (Join-Path $ProjectRoot 'client\builds\test.apk') -PatchManifest (Join-Path $ProjectRoot 'client\patches\empty.json') -ExpectedSha256 'A016D941A3D7BA0A8FC976DAE6FE744EFEC85835A16DD10928B65A9C7E19EE5D'
 } 'Build script must reject missing source APK' 'Source APK not found'
 
+$validationPlan = Join-Path $ProjectRoot 'workspace\apk\pipeline-validation-output.txt'
+& $buildScript -SourceApk (Join-Path $ProjectRoot 'workspace\apk\3.81.1.8.apk') -OutputApk (Join-Path $ProjectRoot 'workspace\apk\pipeline-validation.apk') -PatchManifest (Join-Path $ProjectRoot 'client\patches\control-plane.json') -WhatIf *> $validationPlan
+$validationText = Get-Content -Raw -LiteralPath $validationPlan
+Assert-True ($validationText.Contains('Validated 4 binary replacement(s)')) 'Build script must validate control-plane patch plan'
+
 Assert-Throws {
     & $installScript -Apk (Join-Path $ProjectRoot 'missing.apk') -Serial '192.168.5.102:5555' -SkipDeviceConnect
 } 'Install script must reject missing APK' 'APK not found'
