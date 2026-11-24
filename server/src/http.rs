@@ -68,6 +68,16 @@ pub struct GameRequest {
 }
 
 #[derive(Debug, Serialize)]
+pub struct GameEvents {
+    pub epoch: u64,
+    pub events: Vec<serde_json::Value>,
+    #[serde(rename = "resetRequired")]
+    pub reset_required: bool,
+    pub room: Option<serde_json::Value>,
+    pub messages: Vec<serde_json::Value>,
+}
+
+#[derive(Debug, Serialize)]
 pub struct ErrorBody {
     pub error: ErrorDetail,
 }
@@ -179,6 +189,9 @@ pub fn route_with_handler(
     handler: &RequestHandler<'_>,
 ) -> Result<serde_json::Value, RouteError> {
     let parts: Vec<_> = split_path(request);
+    if let Some(game_events) = game_events_route(&parts, state) {
+        return game_events;
+    }
     match parts.as_slice() {
         [method, path] if method == "GET" && path == "/health" => {
             Ok(serde_json::to_value(health(state)).unwrap())
@@ -228,6 +241,33 @@ pub fn route_with_handler(
         }
         _ => route_domain(request, state, handler),
     }
+}
+
+fn game_events_route(
+    parts: &[String],
+    state: AppState,
+) -> Option<Result<serde_json::Value, RouteError>> {
+    if parts.first().map(String::as_str) != Some("GET") {
+        return None;
+    }
+    let path = parts.get(1)?.split('?').next()?.to_string();
+    if path != "/game/events" {
+        return None;
+    }
+
+    let _query = parts
+        .get(1)
+        .and_then(|value| value.split_once('?'))
+        .map(|(_, query)| query.to_string())
+        .unwrap_or_default();
+    let response = GameEvents {
+        epoch: state.epoch,
+        events: Vec::new(),
+        reset_required: false,
+        room: None,
+        messages: Vec::new(),
+    };
+    Some(Ok(serde_json::to_value(response).unwrap()))
 }
 
 fn route_domain(

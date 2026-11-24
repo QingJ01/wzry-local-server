@@ -100,6 +100,21 @@ fn unknown_protocol_returns_501_and_observes() {
 }
 
 #[test]
+fn game_events_returns_an_empty_poll_page() {
+    let response = wzry_local_server::route(
+        b"GET /game/events?after=0&epoch=old HTTP/1.1\r\n\r\n",
+        AppState::default(),
+        &(Arc::new(MemoryStore::new()) as Arc<dyn Store>),
+    )
+    .unwrap();
+    assert_eq!(response["epoch"], 1);
+    assert_eq!(response["events"], serde_json::json!([]));
+    assert_eq!(response["messages"], serde_json::json!([]));
+    assert_eq!(response["resetRequired"], false);
+    assert_eq!(response["room"], serde_json::json!(null));
+}
+
+#[test]
 fn oversized_body_returns_413() {
     let state = AppState {
         http_body_bytes: 8,
