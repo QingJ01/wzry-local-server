@@ -165,3 +165,12 @@ client/
 2. 由协议逆向任务确认登录/调度地址来源和最小修改点。
 3. 编写 `Build-WzryApk.ps1`，从提取、补丁、对齐、签名到验证完全幂等。
 4. 在设备只读基线完成后再实现 `Install-WzryApk.ps1`，并加入安装前哈希确认和失败回滚说明。
+
+
+## 完整性触发排查（2026-11-24）
+
+- 判定报告：eports/signature_integrity_verdict.md — 实验证明改签名/改包**不是**崩溃触发源（腾讯原签名 B0 同样被外部 force-stop 杀死）。
+- 冷启动实验脚本：	ools/Invoke-ColdStartExperiment.ps1（安装→launch→按秒轮询 pid→dump logcat→写 result.json）。
+- 对照产物：workspace/apk/B0-original-tencent-sig.apk（原签名 zipalign）、workspace/apk/A0-resigned-final.apk（仅重签）。
+- 重要安装约束：腾讯签名包与 debug 重签包**不能互相 install -r 覆盖**，会 INSTALL_FAILED_UPDATE_INCOMPATIBLE: signatures do not match；切换签名前必须 db uninstall 清场（会丢应用数据）。
+
