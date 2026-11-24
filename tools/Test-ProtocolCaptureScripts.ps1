@@ -15,8 +15,9 @@ function Assert-True {
 $socketScript = Join-Path $ProjectRoot 'tools\Observe-ProcessSockets.ps1'
 $fridaScript = Join-Path $ProjectRoot 'tools\frida\wzry-network.js'
 $planPath = Join-Path $ProjectRoot 'reports\protocol_capture_plan.md'
+$runbookPath = Join-Path $ProjectRoot 'reports\dynamic_capture_runbook.md'
 
-foreach ($path in @($socketScript, $fridaScript, $planPath)) {
+foreach ($path in @($socketScript, $fridaScript, $planPath, $runbookPath)) {
     Assert-True (Test-Path -LiteralPath $path -PathType Leaf) "Required file missing: $path"
 }
 
@@ -43,6 +44,35 @@ foreach ($requiredToken in @('Module.findExportByName', "'connect'", "'send'", "
 $planContent = Get-Content -Raw -LiteralPath $planPath
 foreach ($requiredHeading in @('## Account traffic', '## Battle traffic', '## Shop traffic', '## Read-only tcpdump option')) {
     Assert-True ($planContent.Contains($requiredHeading)) "Protocol plan must contain $requiredHeading"
+}
+
+$runbookContent = Get-Content -Raw -LiteralPath $runbookPath
+foreach ($requiredHeading in @(
+    '## Scope and non-negotiable boundaries',
+    '## Operator preparation',
+    '## Game start and stop',
+    '## Read-only process socket ownership',
+    '## Frida server deployment boundary',
+    '## Hook execution and log preservation',
+    '## Minimum trigger paths',
+    '## Result determination',
+    '## Rollback and cleanup'
+)) {
+    Assert-True ($runbookContent.Contains($requiredHeading)) "Dynamic capture runbook must contain $requiredHeading"
+}
+
+foreach ($requiredToken in @(
+    '192.168.5.102:5555',
+    'com.tencent.tmgp.sgame',
+    'Only the main thread executes ADB',
+    'Do not patch, reinstall, clear data',
+    'workspace\observations\frida',
+    'server binary in an operator-chosen temporary location',
+    'rm -f /data/local/tmp/frida-server',
+    'No device rollback is required for `Observe-ProcessSockets.ps1` itself',
+    'it does not mean traffic was captured'
+)) {
+    Assert-True ($runbookContent.Contains($requiredToken)) "Dynamic capture runbook must contain safety token: $requiredToken"
 }
 
 if ($failures.Count -gt 0) {
