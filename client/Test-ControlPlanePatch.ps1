@@ -6,6 +6,16 @@ $ErrorActionPreference = 'Stop'
 $manifestPath = Join-Path $ProjectRoot 'client\patches\control-plane.json'
 $manifest = Get-Content -Raw -LiteralPath $manifestPath | ConvertFrom-Json
 
+if ($manifest.sessionIdentity.mode -ne 'default-local-session') {
+    throw "sessionIdentity must declare default-local-session for the current patch."
+}
+if ($manifest.sessionIdentity.requiresTokenInjection) {
+    throw "sessionIdentity must not require token injection for the current patch."
+}
+if ($manifest.sessionIdentity.requiresUrlRewrite) {
+    throw "sessionIdentity must not require URL rewriting for the current patch."
+}
+
 foreach ($patch in $manifest.binaryPatches) {
     foreach ($replacement in $patch.replacements) {
         if ($replacement.find.Length -ne $replacement.replace.Length) {
@@ -23,12 +33,37 @@ foreach ($patch in $manifest.binaryPatches) {
     }
 }
 
+if (-not $manifest.PSObject.Properties['entries'] -or $manifest.entries.Count -gt 0) {
+    throw "The current patch must stay method0 and must not add or replace ZIP entries."
+}
+
 $buildScript = Join-Path $ProjectRoot 'client\Build-WzryApk.ps1'
 $buildContent = Get-Content -Raw -LiteralPath $buildScript
-foreach ($requiredToken in @('binaryPatches', 'WhatIf', 'Convert-ToBinaryString')) {
+foreach ($requiredToken in @(
+    'binaryPatches',
+    'WhatIf',
+    'Convert-ToBinaryString',
+    'Get-EntryStorePolicy',
+    'CompressionMethod',
+    "EntryPath -eq 'resources.arsc'",
+    'New-StagingZip',
+    'apksigner verify --verbose',
+    'zipalign -c -p 4'
+)) {
     if (-not $buildContent.Contains($requiredToken)) {
         throw "Build script must implement $requiredToken"
     }
+}
+
+$newStagingZipFunction = [System.Management.Automation.Language.Parser]::ParseFile(
+    $buildScript, [ref]$null, [ref]$null
+).Find({
+    param($node)
+    $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and
+    $node.Name -eq 'New-StagingZip'
+}, $true)
+if (-not $newStagingZipFunction.Body.Extent.Text.Contains('foreach ($entry in $SourceArchive.Entries)')) {
+    throw 'New-StagingZip must rebuild staging ZIP in source entry order'
 }
 
 Write-Host 'Control-plane patch tests passed.'

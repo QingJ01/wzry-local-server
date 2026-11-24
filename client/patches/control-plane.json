@@ -6,6 +6,12 @@
     "versionCode": 381010801,
     "apkSha256": "A016D941A3D7BA0A8FC976DAE6FE744EFEC85835A16DD10928B65A9C7E19EE5D"
   },
+  "sessionIdentity": {
+    "mode": "default-local-session",
+    "description": "GET /game/events is authorized by POST /local/session binding on the loopback backend; the APK does not embed a token.",
+    "requiresTokenInjection": false,
+    "requiresUrlRewrite": false
+  },
   "binaryPatches": [
     {
       "entryPath": "AndroidManifest.xml",

@@ -10,6 +10,16 @@
 6. Signs and verifies with APKSigner.
 7. Writes a JSON build manifest next to the output APK.
 
+The `control-plane.json` manifest is a method0-only binary patch. It keeps
+`resources.arsc` and other sensitive entries stored (ZIP Store, method `0`),
+preserves the original ZIP entry order, and avoids adding or replacing any file
+entry. Rebuilt APKs are re-signed and verified with `apksigner verify --verbose`.
+
+`GET /game/events` is not a client-side URL that needs to be rewritten. Once the
+local backend has a bound `POST /local/session`, the same unauthenticated
+loopback poll is authorized by the default local session, so no token or URL
+injection is required in the APK.
+
 Example:
 
 ```powershell
