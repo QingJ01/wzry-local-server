@@ -15,13 +15,13 @@
 | APK build | Pass | `client/Test-Pipeline.ps1` passed; `wzry-control-plane-store-fixed.apk` was built with entry-order and Store-policy checks | No action |
 | Control-plane patch | Pass | `client/Test-ControlPlanePatch.ps1 -Apk client/builds/wzry-control-plane-store-fixed.apk` passed | No action |
 | Device installation | Pass | `client/builds/wzry-control-plane-store-method0.apk` installed successfully with `adb install -r`; `resources.arsc` is ZIP method 0, `zipalign -c -p 4` passes, and APK Signature Schemes v1/v2/v3 verify | Keep this APK as the current installed build |
-| Client reaches local backend | Partial pass | Repeated `GET /game/events?after=0&epoch=1` requests from the foreground client reached Rust on 19620; the new session handler can authorize a default local account, but the installed APK still polls without a token and receives 401 | Patch or inject the event-session identity without guessing production credentials, then confirm HTTP 200 in the live client |
-| Dynamic capture | Partial pass | Session 2: with `/local/session` bound (loopback `/game/events` → 200), consent→permissions→确定 chain repeated; PID 20314 owned socket inode 1196769 to 116.77.172.88:443, then houdini issued `SIGKILL` ~9 s after the permissions confirm (19:51:39) — this run had no external `Force stopping` line | Root-cause the Houdini SIGKILL on the post-permissions transition before resuming UI progression; keep treating 401-only polling and server-side 501s as non-evidence |
+| Client reaches local backend | Pass | Repeated `GET /game/events?after=0&epoch=1` requests from the foreground client reach Rust on 19620 carrying a static `Authorization: Bearer` credential injected by the patch; after the loopback fallback fix, live observations show the client polls returning HTTP `200` with the bound default session | Keep the loopback session bound before each capture session |
+| Dynamic capture | Partial pass | Spawn-gated Frida reproducibly crashed the native-bridge/Houdini load path; the same x86_64 Frida server attached after a normal Android launch. Session `20261124-194343` captured 6/6 `socket-data` events with socket inodes, 3 outbound and 3 inbound, and descriptor 83/inode 1183151 matched the process-owned `/proc` HTTPS connection | Keep attach mode for Houdini; repeat only safe UI paths and retain the account/battle/shop semantic gates |
 | Account end-to-end | Not proven | Only internal account API tests pass; no client login request/response evidence | Capture at least two safe login sessions and prove endpoint, direction, timing, framing, and response behavior |
 | Battle end-to-end | Not proven | Only internal battle API tests pass; no room/battle/settlement client evidence | Capture a safe training flow and prove persistent endpoint, bidirectional frames, and stable boundaries |
 | Shop end-to-end | Not proven | Only internal shop API tests pass; no shop/list/purchase client evidence | Capture two shop sessions; do not buy without explicit authorization |
 | Protocol recovery | Not proven | Static reports provide anchors only; no gateway, frame header, command ID, encryption, or schema is recovered | Analyze real Frida JSONL with `tools/correlate_protocol_capture.mjs`; do not guess values |
-| Rust tests | Pass | `cargo fmt --check`; `cargo test` completed with 22 tests passing after the local-session change | Re-run after protocol handlers change |
+| Rust tests | Pass | `cargo test` completed with 25 tests passing after the loopback bearer-fallback change and its regression test | Re-run after protocol handlers change |
 | Client tests | Pass | Pipeline and control-plane patch tests passed | Re-run after reinstall or patch changes |
 | Static/reverse tests | Pass | Native patch, GameCore, IL2CPP, protocol capture, observation, and correlation tests all passed | Re-run after analysis-tool changes |
 
@@ -39,9 +39,9 @@
 
 ## Required acceptance order
 
-1. Add an authorization-aware `/game/events` identity path so event polling can be correlated to a local account session without guessing client credentials.
-2. Capture labeled cold-start, login, lobby, shop, and safe battle phases with Frida and process-socket snapshots.
-3. Prove inbound direction and correlate Frida descriptors with target-owned socket inodes.
+1. Stabilize cold start past the client self-SIGKILL window (~9–62 s): capture game-PID logcat to locate the integrity/emulator check before attempting login/lobby progression.
+2. Capture labeled cold-start, login, lobby, shop, and safe battle phases with Frida and process-socket snapshots once the process survives.
+3. Extend the proven inbound direction and descriptor/inode correlation to labeled `/game/events` traffic and real game phases; the current proof covers process-owned HTTPS only.
 4. Recover endpoint and framing evidence before implementing any client-compatible account, battle, or shop protocol.
 5. Validate real account, battle, and shop flows independently with reproducible evidence.
 6. Re-run the complete test suite and update this matrix before claiming acceptance.

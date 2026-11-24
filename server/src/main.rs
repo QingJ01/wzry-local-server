@@ -93,8 +93,14 @@ fn handle_http_connection(
         .split("\r\n")
         .next()
         .map(str::to_owned);
+    let auth_hint = request
+        .bytes
+        .windows("Authorization: Bearer ".len())
+        .any(|window| window == b"Authorization: Bearer ")
+        .then_some(" auth=bearer")
+        .unwrap_or("");
     let mut observation = wzry_local_server::store::Observation::now("http");
-    observation.source = method_and_path;
+    observation.source = method_and_path.map(|value| format!("{}{}", value, auth_hint));
     observation.bytes = request.bytes.len();
     observation.status = status;
     store.add_observation(observation);

@@ -214,6 +214,44 @@ fn local_game_session_supports_query_and_default_polling() {
 }
 
 #[test]
+fn local_game_session_authorizes_unknown_bearer_on_loopback() {
+    let app = services();
+    login(&app, "fallback");
+    route(
+        &app,
+        app_state(true),
+        &request("POST", "/local/session", None, Some(r#"{"accountId":1}"#)),
+    )
+    .unwrap();
+
+    let response = route(
+        &app,
+        app_state(true),
+        &request(
+            "GET",
+            "/game/events?after=0&epoch=1",
+            Some("client-credential"),
+            None,
+        ),
+    )
+    .unwrap();
+    assert_eq!(response["epoch"], 1);
+
+    let disabled_error = route(
+        &app,
+        app_state(false),
+        &request(
+            "GET",
+            "/game/events?after=0&epoch=1",
+            Some("client-credential"),
+            None,
+        ),
+    )
+    .unwrap_err();
+    assert!(response_for(Err(disabled_error)).starts_with(b"HTTP/1.1 401"));
+}
+
+#[test]
 fn battle_room_ready_start_frame_and_settle_flow() {
     let app = services();
     let owner_token = login(&app, "owner");

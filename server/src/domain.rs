@@ -246,6 +246,11 @@ impl AppServices {
             if let Some(account_id) = state.local_tokens.get(token).copied() {
                 return Ok(account_id);
             }
+            if allow_default_local_session {
+                if let Some(account_id) = state.default_local_account_id {
+                    return Ok(account_id);
+                }
+            }
             return Err(DomainError::Unauthorized);
         }
         if allow_default_local_session {
