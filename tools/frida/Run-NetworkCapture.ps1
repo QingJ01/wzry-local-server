@@ -10,7 +10,9 @@ param(
 
     [int]$ServerPort = 27042,
 
-    [int]$CaptureSeconds = 90
+    [int]$CaptureSeconds = 90,
+
+    [switch]$Attach
 )
 
 $ErrorActionPreference = 'Stop'
@@ -134,14 +136,20 @@ switch ($Action) {
             lastLogPath = $logPath
             captureStartedAt = (Get-Date).ToUniversalTime().ToString('o')
             captureSeconds = $CaptureSeconds
+            attachMode = [bool]$Attach
+        }
+
+        $captureArguments = @(
+            (Join-Path (Split-Path -Parent $PSCommandPath) 'run-network-capture.mjs'),
+            $logPath,
+            $CaptureSeconds
+        )
+        if ($Attach) {
+            $captureArguments += 'attach'
         }
 
         $process = Start-Process -FilePath $nodePath `
-            -ArgumentList @(
-                (Join-Path (Split-Path -Parent $PSCommandPath) 'run-network-capture.mjs'),
-                $logPath,
-                $CaptureSeconds
-            ) `
+            -ArgumentList $captureArguments `
             -WorkingDirectory $ProjectRoot `
             -RedirectStandardOutput $logPath `
             -RedirectStandardError $stderrPath `

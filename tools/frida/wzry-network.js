@@ -3,6 +3,12 @@
 const maximumPreviewBytes = 64;
 const socketDescriptors = new Map();
 const connectedSockets = new Map();
+const descriptorInodes = new Map();
+
+const readlinkAddress = Module.findGlobalExportByName('readlink');
+const readlink = readlinkAddress
+    ? new NativeFunction(readlinkAddress, 'int', ['pointer', 'pointer', 'size_t'])
+    : null;
 
 function logEvent(type, payload) {
     const event = {
@@ -10,7 +16,7 @@ function logEvent(type, payload) {
         type: type,
         ...payload
     };
-    console.log(JSON.stringify(event));
+    send(event);
 }
 
 function formatHex(bytes) {
@@ -86,6 +92,26 @@ function readSocketAddress(sockaddr) {
     };
 }
 
+function isAdbReverseAddress(address) {
+    return address !== null && (
+        (address.family === 'AF_INET' && address.address === '127.0.0.1') ||
+        (address.family === 'AF_INET6' && (address.address === '::1' || address.address === '::ffff:127.0.0.1'))
+    );
+}
+
+function socketClass(address, domain) {
+    if (isAdbReverseAddress(address)) {
+        return 'local-adb-reverse';
+    }
+    if (address !== null && (address.family === 'AF_INET' || address.family === 'AF_INET6')) {
+        return 'network';
+    }
+    if (domain === 1) {
+        return 'AF_UNIX';
+    }
+    return null;
+}
+
 function readPeerAddress(descriptor) {
     if (typeof Socket === 'undefined' || typeof Socket.peerAddress !== 'function') {
         return null;
@@ -106,6 +132,36 @@ function readPeerAddress(descriptor) {
     }
 }
 
+function isNetworkDomain(domain) {
+    return domain === 2 || domain === 10;
+}
+
+function readSocketInode(descriptor) {
+    if (descriptorInodes.has(descriptor)) {
+        return descriptorInodes.get(descriptor);
+    }
+    if (readlink === null) {
+        return null;
+    }
+
+    try {
+        const pathBuffer = Memory.allocUtf8String(`/proc/self/fd/${descriptor}`);
+        const resultBuffer = Memory.alloc(128);
+        const length = readlink(pathBuffer, resultBuffer, 127);
+        if (length <= 0) {
+            return null;
+        }
+
+        const link = resultBuffer.readUtf8String(length);
+        const match = link !== null ? link.match(/socket:\[(\d+)\]/) : null;
+        const inode = match !== null ? Number(match[1]) : null;
+        descriptorInodes.set(descriptor, inode);
+        return inode;
+    } catch (error) {
+        return null;
+    }
+}
+
 function resolveEndpoint(descriptor) {
     const knownAddress = connectedSockets.get(descriptor) || null;
     const peerAddress = readPeerAddress(descriptor);
@@ -115,16 +171,18 @@ function resolveEndpoint(descriptor) {
 
     return {
         endpoint: peerAddress || knownAddress,
-        source: peerAddress !== null ? 'peer-address' : (knownAddress !== null ? 'connect' : null)
+        source: peerAddress !== null
+            ? 'peer-address'
+            : (knownAddress !== null ? 'connect' : (socketDescriptors.has(descriptor) ? 'descriptor' : null))
     };
 }
 
 function isSocketDescriptor(descriptor) {
-    if (connectedSockets.has(descriptor)) {
+    if (connectedSockets.has(descriptor) || descriptorInodes.has(descriptor)) {
         return true;
     }
     const socketDescriptor = socketDescriptors.get(descriptor);
-    return socketDescriptor !== undefined && (socketDescriptor.domain === 2 || socketDescriptor.domain === 10);
+    return socketDescriptor !== undefined && isNetworkDomain(socketDescriptor.domain);
 }
 
 function isLikelySocketDescriptor(descriptor) {
@@ -168,10 +226,13 @@ function hookSocketCreation() {
                 type: this.type,
                 protocol: this.protocol
             });
+            const inode = readSocketInode(descriptor);
             logEvent('socket', {
+                socketType: this.type,
                 descriptor: descriptor,
                 domain: this.domain,
-                type: this.type,
+                network: isNetworkDomain(this.domain),
+                socketInode: inode,
                 protocol: this.protocol
             });
         }
@@ -186,14 +247,23 @@ function hookConnect() {
         },
         onLeave: function (result) {
             const returnValue = result.toInt32();
-            if (!connectedSockets.has(this.descriptor)) {
+            const descriptorState = socketDescriptors.get(this.descriptor);
+            const socketKind = socketClass(
+                this.address,
+                descriptorState !== undefined ? descriptorState.domain : null
+            );
+            const network = socketKind === 'network' || socketKind === 'local-adb-reverse';
+            if (network && !connectedSockets.has(this.descriptor)) {
                 connectedSockets.set(this.descriptor, this.address);
             }
 
             logEvent('connect', {
                 descriptor: this.descriptor,
                 result: returnValue,
-                endpoint: this.address
+                endpoint: this.address,
+                socketClass: socketKind,
+                network: socketKind !== null,
+                socketInode: readSocketInode(this.descriptor)
             });
         }
     });
@@ -216,13 +286,13 @@ function readIovec(iov, count) {
 }
 
 function logSocketData(functionName, direction, descriptor, result, requestedLength, buffer) {
-    if ((functionName === 'read' || functionName === 'write') && !isLikelySocketDescriptor(descriptor)) {
+    if (!isLikelySocketDescriptor(descriptor)) {
         return;
     }
 
     const actualLength = result > 0 ? result : 0;
     const socketDescriptor = socketDescriptors.get(descriptor);
-    if (socketDescriptor !== undefined && socketDescriptor.domain !== 2 && socketDescriptor.domain !== 10) {
+    if (socketDescriptor !== undefined && !isNetworkDomain(socketDescriptor.domain)) {
         return;
     }
 
@@ -240,6 +310,7 @@ function logSocketData(functionName, direction, descriptor, result, requestedLen
         descriptor: descriptor,
         endpoint: endpointState.endpoint,
         endpointSource: endpointState.source,
+        socketInode: readSocketInode(descriptor),
         result: result,
         requestedLength: requestedLength,
         actualLength: actualLength,
@@ -291,8 +362,8 @@ function hookDatagramCall(exportName, direction) {
     });
 }
 
-function hookWritev() {
-    hookExport('libc.so', 'writev', {
+function hookVectorCall(exportName, direction) {
+    hookExport('libc.so', exportName, {
         onEnter: function (args) {
             this.descriptor = args[0].toInt32();
             this.iovec = args[1];
@@ -303,8 +374,33 @@ function hookWritev() {
         },
         onLeave: function (result) {
             logSocketData(
-                'writev',
-                'outbound',
+                exportName,
+                direction,
+                this.descriptor,
+                result.toInt32(),
+                this.requestedLength,
+                this.buffer
+            );
+        }
+    });
+}
+
+function hookMessageCall(exportName, direction) {
+    hookExport('libc.so', exportName, {
+        onEnter: function (args) {
+            this.descriptor = args[0].toInt32();
+            const messageHeader = args[1];
+            this.iovec = messageHeader.add(16).readPointer();
+            const rawCount = messageHeader.add(24).readU64();
+            this.count = typeof rawCount.toNumber === 'function' ? rawCount.toNumber() : Number(rawCount);
+            const iovec = readIovec(this.iovec, this.count);
+            this.requestedLength = iovec.requestedLength;
+            this.buffer = iovec.previewAddress;
+        },
+        onLeave: function (result) {
+            logSocketData(
+                exportName,
+                direction,
                 this.descriptor,
                 result.toInt32(),
                 this.requestedLength,
@@ -345,6 +441,7 @@ function hookClose() {
             const endpoint = connectedSockets.get(this.descriptor) || null;
             socketDescriptors.delete(this.descriptor);
             connectedSockets.delete(this.descriptor);
+            descriptorInodes.delete(this.descriptor);
             logEvent('socket-close', {
                 descriptor: this.descriptor,
                 endpoint: endpoint,
@@ -397,7 +494,10 @@ hookSimpleDataCall('write', 'outbound');
 hookSimpleDataCall('read', 'inbound');
 hookDatagramCall('sendto', 'outbound');
 hookDatagramCall('recvfrom', 'inbound');
-hookWritev();
+hookVectorCall('writev', 'outbound');
+hookVectorCall('readv', 'inbound');
+hookMessageCall('sendmsg', 'outbound');
+hookMessageCall('recvmsg', 'inbound');
 hookShutdown();
 hookClose();
 
@@ -415,6 +515,9 @@ logEvent('session-started', {
         'read',
         'write',
         'writev',
+        'readv',
+        'sendmsg',
+        'recvmsg',
         'shutdown',
         'close'
     ]

@@ -191,6 +191,17 @@ function parseEpoch(value) {
     return Number.isFinite(timestamp) ? timestamp : null;
 }
 
+function ipv6ToBytes(address) {
+    const parts = String(address || '').split(':');
+    if (parts.length !== 8 || parts.some(part => !/^[0-9A-Fa-f]{1,4}$/.test(part))) {
+        return null;
+    }
+    return parts.flatMap(part => {
+        const value = Number.parseInt(part, 16);
+        return [value >> 8, value & 0xff];
+    });
+}
+
 function parseProcAddress(value) {
     const match = /^([0-9A-Fa-f]+):([0-9A-Fa-f]+)$/.exec(value || '');
     if (!match) {
@@ -217,8 +228,18 @@ function parseProcAddress(value) {
 
     if (addressHex.length === 32) {
         const words = [];
-        for (let index = 0; index < 32; index += 8) {
-            words.push(addressHex.slice(index, index + 8));
+        for (let index = 0; index < 32; index += 4) {
+            words.push(addressHex.slice(index, index + 4));
+        }
+        const bytes = ipv6ToBytes(words.join(':'));
+        if (bytes !== null &&
+            bytes.slice(0, 10).every(byte => byte === 0) &&
+            bytes[10] === 0xff && bytes[11] === 0xff) {
+            return {
+                family: 'AF_INET',
+                address: bytes.slice(12).join('.'),
+                port
+            };
         }
         return {
             family: 'AF_INET6',
@@ -235,6 +256,18 @@ function endpointKey(endpoint) {
         return null;
     }
     return `${(endpoint.family || 'unknown')}|${endpoint.address}|${endpoint.port}`;
+}
+
+function canonicalAddress(address) {
+    const match = /^::ffff:(\d+\.\d+\.\d+\.\d+)$/i.exec(address || '');
+    return match === null ? address : match[1];
+}
+
+function canonicalEndpointKey(endpoint) {
+    return endpointKey({
+        ...endpoint,
+        address: canonicalAddress(endpoint.address)
+    });
 }
 
 function endpointClassification(endpoint) {
@@ -263,7 +296,7 @@ function createCollector() {
 }
 
 function recordEndpoint(collector, endpoint, source, options) {
-    const key = endpointKey(endpoint);
+    const key = canonicalEndpointKey(endpoint);
     if (!key) {
         return;
     }
@@ -508,6 +541,7 @@ function buildEndpointResult(record) {
         observedPhases: [...record.observedPhases].sort(),
         states: [...record.states].sort(),
         descriptors: [...record.descriptors].sort((left, right) => left - right),
+        socketInodes: [...record.socketInodes].sort((left, right) => left - right),
         processOwnershipConsistent: ownershipConsistent(record.processOwnership),
         socketSnapshotCount: record.socketSnapshotCount,
         fridaEventCount: record.fridaEventCount,

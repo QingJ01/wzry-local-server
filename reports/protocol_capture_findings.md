@@ -1,6 +1,6 @@
 # Protocol capture findings
 
-Generated: 2026-11-24T11:58:52.846Z
+Generated: 2026-11-24T12:05:09.948Z
 
 This report merges process-owned socket observations and Frida socket events. It records endpoint, direction, and length evidence only. It does not infer frame headers, command IDs, encryption, compression, or schemas from static names or byte previews.
 
@@ -27,8 +27,8 @@ The `game-candidate` label means only that the endpoint is non-HTTP and process/
 | --- | --- | --- | --- | ---: | --- | --- |
 | 122.96.96.251:10012 | frida | game-candidate | low | 0 / 0 | n/a | unlabeled |
 | 0:0:0:0:0:ffff:71c8:29eb:443 | frida | http-control-plane | low | 0 / 0 | n/a | unlabeled |
-| 00000000:00000000:FFFF0000:57F2C971:443 | process-socket | http-control-plane | low | 0 / 0 | n/a | unlabeled |
-| 00000000:00000000:FFFF0000:EB29C871:443 | process-socket | http-control-plane | low | 0 / 0 | n/a | unlabeled |
+| 0000:0000:0000:0000:FFFF:0000:57F2:C971:443 | process-socket | http-control-plane | low | 0 / 0 | n/a | unlabeled |
+| 0000:0000:0000:0000:FFFF:0000:EB29:C871:443 | process-socket | http-control-plane | low | 0 / 0 | n/a | unlabeled |
 | ::ffff:113.200.41.235:443 | frida | http-control-plane | low | 3 / 3 | 85–4235 | unlabeled |
 
 ## Protocol findings
