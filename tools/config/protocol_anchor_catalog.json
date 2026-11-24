@@ -1,0 +1,86 @@
+{
+  "version": 1,
+  "staticEvidence": [
+    {
+      "library": "libGameCore.so",
+      "kind": "import",
+      "name": "connect",
+      "confidence": "high",
+      "correlationRole": "endpoint"
+    },
+    {
+      "library": "libGameCore.so",
+      "kind": "import",
+      "name": "send",
+      "confidence": "high",
+      "correlationRole": "outbound"
+    },
+    {
+      "library": "libGameCore.so",
+      "kind": "import",
+      "name": "recv",
+      "confidence": "high",
+      "correlationRole": "inbound"
+    },
+    {
+      "library": "libGameCore.so",
+      "kind": "export",
+      "name": "PushCsBuffer",
+      "confidence": "medium",
+      "correlationRole": "managed-pack-buffer"
+    },
+    {
+      "library": "libGameCore.so",
+      "kind": "export",
+      "name": "PopFifoCppPackBuffer",
+      "confidence": "medium",
+      "correlationRole": "native-pack-buffer"
+    },
+    {
+      "library": "libil2cpp.so",
+      "kind": "metadata",
+      "name": "LobbyConnector",
+      "confidence": "medium",
+      "correlationRole": "connector"
+    },
+    {
+      "library": "libil2cpp.so",
+      "kind": "metadata",
+      "name": "commandId",
+      "confidence": "high",
+      "correlationRole": "dispatch-field"
+    }
+  ],
+  "semanticAnchors": [
+    {
+      "flow": "account",
+      "name": "SCPKG_CMD_GAMELOGINRSP",
+      "metadataOffset": "0x2F066C",
+      "confidence": "high"
+    },
+    {
+      "flow": "battle",
+      "name": "SCPKG_MATCH_RSP",
+      "metadataOffset": "0x2FEBE6",
+      "confidence": "high"
+    },
+    {
+      "flow": "battle",
+      "name": "SCPKG_MULTGAME_BEGINFIGHT",
+      "metadataOffset": "0x2F2801",
+      "confidence": "high"
+    },
+    {
+      "flow": "shop",
+      "name": "SCPKG_CMD_SHOPDETAIL",
+      "metadataOffset": "0x2FA8B7",
+      "confidence": "high"
+    },
+    {
+      "flow": "shop",
+      "name": "SCPKG_CMD_SHOPBUY",
+      "metadataOffset": "0x2FA869",
+      "confidence": "high"
+    }
+  ]
+}
