@@ -11,8 +11,11 @@ $rows = @()
 foreach ($line in $lines | Select-Object -Skip 1) {
     $columns = ($line -split '\s+') | Where-Object { $_ -ne '' }
     if ($columns.Count -lt 4) { continue }
-    $localParts = $columns[1].Split(':')
-    $remoteParts = $columns[2].Split(':')
+    $localParts = [regex]::Match($columns[1], '^([^:]+):([0-9A-Fa-f]+)$').Groups
+    $remoteParts = [regex]::Match($columns[2], '^([^:]+):([0-9A-Fa-f]+)$').Groups
+    if ($localParts.Count -lt 3 -or $remoteParts.Count -lt 3) {
+        continue
+    }
     $rows += [pscustomobject]@{
         State = switch ($columns[3]) {
             '01' { 'ESTABLISHED' }
@@ -25,8 +28,8 @@ foreach ($line in $lines | Select-Object -Skip 1) {
             '08' { 'CLOSE_WAIT' }
             default { $columns[3] }
         }
-        LocalAddress = '{0}:{1}' -f ($localParts[0] -replace '^(.{2})(?=.)', '$0:'), [Convert]::ToUInt64($localParts[1], 16)
-        RemoteAddress = '{0}:{1}' -f ($remoteParts[0] -replace '^(.{2})(?=.)', '$0:'), [Convert]::ToUInt64($remoteParts[1], 16)
+        LocalAddress = '{0}:{1}' -f ($localParts[1].Value -replace '^(.{2})(?=.)', '$0:'), [Convert]::ToUInt64($localParts[2].Value, 16)
+        RemoteAddress = '{0}:{1}' -f ($remoteParts[1].Value -replace '^(.{2})(?=.)', '$0:'), [Convert]::ToUInt64($remoteParts[2].Value, 16)
         UID = [Convert]::ToInt64($columns[7], 16)
         Inode = $columns[9]
     }
