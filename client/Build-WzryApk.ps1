@@ -16,7 +16,9 @@ param(
 
     [string]$KeyAlias = 'wzry-debug',
 
-    [securestring]$KeyPassword
+    [securestring]$KeyPassword,
+
+    [switch]$WhatIf
 )
 
 $ErrorActionPreference = 'Stop'
@@ -44,6 +46,82 @@ function Get-ZipEntrySha256 {
     }
     finally {
         $entryStream.Dispose()
+    }
+}
+
+function Convert-ToBinaryString {
+    param(
+        [string]$Text,
+        [string]$Encoding = 'utf8'
+    )
+
+    if ($Encoding -eq 'utf16') {
+        return [System.Text.Encoding]::Unicode.GetBytes($Text)
+    }
+    return [System.Text.Encoding]::UTF8.GetBytes($Text)
+}
+
+function Read-EntryBytes {
+    param(
+        [System.IO.Compression.ZipArchiveEntry]$Entry
+    )
+
+    $stream = $Entry.Open()
+    try {
+        $memory = [System.IO.MemoryStream]::new()
+        $stream.CopyTo($memory)
+        return $memory.ToArray()
+    }
+    finally {
+        $stream.Dispose()
+    }
+}
+
+function Test-BinaryReplacement {
+    param(
+        [byte[]]$Bytes,
+        [byte[]]$Find,
+        [int]$ExpectedCount = 1
+    )
+
+    $count = 0
+    for ($index = 0; $index -le $Bytes.Length - $Find.Length; $index++) {
+        $matches = $true
+        for ($offset = 0; $offset -lt $Find.Length; $offset++) {
+            if ($Bytes[$index + $offset] -ne $Find[$offset]) {
+                $matches = $false
+                break
+            }
+        }
+        if ($matches) {
+            $count++
+            $index += $Find.Length - 1
+        }
+    }
+    if ($ExpectedCount -ge 0) {
+        return ($count -eq $ExpectedCount)
+    }
+    return $count
+}
+
+function Write-EntryBytes {
+    param(
+        [System.IO.Compression.ZipArchive]$Archive,
+        [string]$EntryPath,
+        [byte[]]$Bytes
+    )
+
+    $existingEntry = $Archive.GetEntry($EntryPath)
+    if ($existingEntry) {
+        $existingEntry.Delete()
+    }
+    $entry = $Archive.CreateEntry($EntryPath)
+    $stream = $entry.Open()
+    try {
+        $stream.Write($Bytes, 0, $Bytes.Length)
+    }
+    finally {
+        $stream.Dispose()
     }
 }
 
@@ -93,7 +171,57 @@ Add-Type -AssemblyName System.IO.Compression.FileSystem
 
 $patch = Get-Content -Raw -LiteralPath $PatchManifest | ConvertFrom-Json
 $entries = @($patch.entries)
+$binaryPatches = @($patch.binaryPatches)
 $changes = @()
+
+$binaryPatchPlan = @()
+if ($binaryPatches.Count -gt 0) {
+    $inspectionArchive = [System.IO.Compression.ZipFile]::OpenRead($SourceApk)
+    try {
+        foreach ($binaryPatch in $binaryPatches) {
+            if ([string]::IsNullOrWhiteSpace($binaryPatch.entryPath)) {
+                throw 'Binary patch entryPath is required.'
+            }
+            $entry = $inspectionArchive.GetEntry($binaryPatch.entryPath)
+            if (-not $entry) {
+                throw "Binary patch target entry not found: $($binaryPatch.entryPath)"
+            }
+            $entryBytes = Read-EntryBytes $entry
+            foreach ($replacement in @($binaryPatch.replacements)) {
+                if ([string]::IsNullOrWhiteSpace($replacement.find) -or [string]::IsNullOrWhiteSpace($replacement.replace)) {
+                    throw "Binary patch find and replace are required for $($binaryPatch.entryPath)."
+                }
+                if ($replacement.find.Length -ne $replacement.replace.Length) {
+                    throw "Binary replacement lengths must match for $($binaryPatch.entryPath): $($replacement.find)"
+                }
+                $expectedCount = if ($null -ne $replacement.count) { [int]$replacement.count } else { 1 }
+                $encoding = if ($replacement.encoding) { [string]$replacement.encoding } else { 'utf8' }
+                $actualCount = [int](Test-BinaryReplacement $entryBytes (Convert-ToBinaryString $replacement.find $encoding) -1)
+                if ($actualCount -ne $expectedCount) {
+                    throw "Binary replacement count mismatch for $($binaryPatch.entryPath): $($replacement.find). Expected $expectedCount, found $actualCount."
+                }
+                if ($expectedCount -lt 1) {
+                    throw "Binary replacement count must be positive for $($binaryPatch.entryPath)."
+                }
+                $binaryPatchPlan += [ordered]@{
+                    entryPath = $binaryPatch.entryPath
+                    find = $replacement.find
+                    replace = $replacement.replace
+                    count = $expectedCount
+                    encoding = $encoding
+                }
+            }
+        }
+    }
+    finally {
+        $inspectionArchive.Dispose()
+    }
+}
+
+if ($WhatIf) {
+    Write-Host "Validated $($binaryPatchPlan.Count) binary replacement(s) and $($entries.Count) entry replacement(s). No APK was built."
+    return
+}
 
 $stagingApk = "$OutputApk.staging"
 Copy-Item -LiteralPath $SourceApk -Destination $stagingApk
@@ -102,6 +230,48 @@ try {
     if ($entries.Count -gt 0) {
         $compressedArchive = [System.IO.Compression.ZipFile]::Open($stagingApk, 'Update')
         try {
+            foreach ($binaryPatch in $binaryPatches) {
+                $entry = $compressedArchive.GetEntry($binaryPatch.entryPath)
+                if (-not $entry) {
+                    throw "Binary patch target entry not found during update: $($binaryPatch.entryPath)"
+                }
+                $entryBytes = Read-EntryBytes $entry
+                foreach ($replacement in @($binaryPatch.replacements)) {
+                    $encoding = if ($replacement.encoding) { [string]$replacement.encoding } else { 'utf8' }
+                    $findBytes = Convert-ToBinaryString $replacement.find $encoding
+                    $replaceBytes = Convert-ToBinaryString $replacement.replace $encoding
+                    $expectedCount = if ($null -ne $replacement.count) { [int]$replacement.count } else { 1 }
+                    if (-not (Test-BinaryReplacement $entryBytes $findBytes $expectedCount)) {
+                        throw "Binary replacement count mismatch during update: $($replacement.find)"
+                    }
+                    $position = 0
+                    while ($position -le $entryBytes.Length - $findBytes.Length) {
+                        $matches = $true
+                        for ($offset = 0; $offset -lt $findBytes.Length; $offset++) {
+                            if ($entryBytes[$position + $offset] -ne $findBytes[$offset]) {
+                                $matches = $false
+                                break
+                            }
+                        }
+                        if ($matches) {
+                            for ($offset = 0; $offset -lt $replaceBytes.Length; $offset++) {
+                                $entryBytes[$position + $offset] = $replaceBytes[$offset]
+                            }
+                            $position += $replaceBytes.Length
+                        }
+                        else {
+                            $position++
+                        }
+                    }
+                }
+                Write-EntryBytes $compressedArchive $binaryPatch.entryPath $entryBytes
+                $changes += [ordered]@{
+                    entryPath = $binaryPatch.entryPath
+                    operation = 'binary-replace'
+                    replacements = @($binaryPatch.replacements)
+                }
+            }
+
             foreach ($entrySpec in $entries) {
                 if ([string]::IsNullOrWhiteSpace($entrySpec.entryPath)) {
                     throw 'Patch entryPath is required.'

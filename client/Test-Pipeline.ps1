@@ -86,6 +86,8 @@ Assert-Throws {
     & $installScript -Apk (Join-Path $ProjectRoot 'missing.apk') -Serial '192.168.5.102:5555' -SkipDeviceConnect
 } 'Install script must reject missing APK' 'APK not found'
 
+& (Join-Path $ProjectRoot 'client\Test-ControlPlanePatch.ps1') -ProjectRoot $ProjectRoot
+
 if ($failures.Count -gt 0) {
     $failures | ForEach-Object { Write-Error $_ }
     throw "Pipeline tests failed: $($failures.Count) failure(s)"
