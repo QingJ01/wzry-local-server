@@ -41,11 +41,13 @@ fn debug_observations_are_read_only() {
     let store: Arc<dyn Store> = Arc::new(MemoryStore::new());
     store.add_observation(wzry_local_server::Observation {
         channel: "http",
+        source: Some("127.0.0.1:50000".into()),
         method_id: Some(123),
         command: None,
         sequence: None,
         bytes: 2,
         status: 501,
+        recorded_at_unix_ms: 1_234_567_890,
     });
     let response = wzry_local_server::route(
         b"GET /debug/observations HTTP/1.1\r\n\r\n",
@@ -54,7 +56,35 @@ fn debug_observations_are_read_only() {
     )
     .unwrap();
     assert_eq!(response["observations"][0]["methodId"], 123);
+    assert_eq!(response["observations"][0]["source"], "127.0.0.1:50000");
+    assert_eq!(
+        response["observations"][0]["recordedAtUnixMs"],
+        1_234_567_890
+    );
     assert_eq!(store.observation_count(), 1);
+}
+
+#[test]
+fn observation_store_keeps_a_bounded_audit_log() {
+    let store = MemoryStore::new();
+    for index in 0..10_001 {
+        store.add_observation(wzry_local_server::Observation {
+            channel: "http",
+            source: Some(format!("peer:{index}")),
+            method_id: Some(index as u64),
+            command: None,
+            sequence: None,
+            bytes: index,
+            status: 501,
+            recorded_at_unix_ms: index as u64,
+        });
+    }
+    assert_eq!(store.observation_count(), 10_000);
+    assert_eq!(store.observations()[0].source.as_deref(), Some("peer:1"));
+    assert_eq!(
+        store.observations().last().unwrap().source.as_deref(),
+        Some("peer:10000")
+    );
 }
 
 #[test]
@@ -73,6 +103,7 @@ fn unknown_protocol_returns_501_and_observes() {
 fn oversized_body_returns_413() {
     let state = AppState {
         http_body_bytes: 8,
+        max_observations: 1000,
         epoch: 1,
     };
     let error = wzry_local_server::route(

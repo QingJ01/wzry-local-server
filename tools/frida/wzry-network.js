@@ -123,6 +123,19 @@ function isSocketDescriptor(descriptor) {
     return socketDescriptors.has(descriptor) || connectedSockets.has(descriptor);
 }
 
+function isLikelySocketDescriptor(descriptor) {
+    if (isSocketDescriptor(descriptor)) {
+        return true;
+    }
+
+    try {
+        const peer = Socket.peerAddress(descriptor);
+        return peer !== null && peer.ip !== undefined;
+    } catch (error) {
+        return false;
+    }
+}
+
 function hookExport(moduleName, exportName, callbacks) {
     const address = Module.findExportByName(moduleName, exportName);
     if (!address) {
@@ -199,7 +212,7 @@ function readIovec(iov, count) {
 }
 
 function logSocketData(functionName, direction, descriptor, result, requestedLength, buffer) {
-    if (!isSocketDescriptor(descriptor)) {
+    if ((functionName === 'read' || functionName === 'write') && !isLikelySocketDescriptor(descriptor)) {
         return;
     }
 
@@ -332,8 +345,43 @@ function hookClose() {
     });
 }
 
+function hookAccept(exportName) {
+    hookExport('libc.so', exportName, {
+        onEnter: function (args) {
+            this.descriptor = args[0].toInt32();
+        },
+        onLeave: function (result) {
+            const acceptedDescriptor = result.toInt32();
+            if (acceptedDescriptor < 0) {
+                return;
+            }
+
+            const endpoint = readPeerAddress(acceptedDescriptor);
+            if (endpoint !== null) {
+                connectedSockets.set(acceptedDescriptor, endpoint);
+            } else {
+                socketDescriptors.set(acceptedDescriptor, {
+                    domain: 2,
+                    type: 1,
+                    protocol: 0,
+                    origin: exportName
+                });
+            }
+
+            logEvent('socket-accepted', {
+                function: exportName,
+                descriptor: acceptedDescriptor,
+                listenDescriptor: this.descriptor,
+                endpoint: endpoint
+            });
+        }
+    });
+}
+
 hookSocketCreation();
 hookConnect();
+hookAccept('accept');
+hookAccept('accept4');
 hookSimpleDataCall('send', 'outbound');
 hookSimpleDataCall('recv', 'inbound');
 hookSimpleDataCall('write', 'outbound');

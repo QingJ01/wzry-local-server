@@ -15,13 +15,31 @@ function Assert-True {
 $socketScript = Join-Path $ProjectRoot 'tools\Observe-ProcessSockets.ps1'
 $fridaScript = Join-Path $ProjectRoot 'tools\frida\wzry-network.js'
 $fridaRunner = Join-Path $ProjectRoot 'tools\frida\Run-NetworkCapture.ps1'
+$fridaCaptureHelper = Join-Path $ProjectRoot 'tools\frida\run-network-capture.mjs'
 $fridaPackage = Join-Path $ProjectRoot 'tools\frida\package.json'
 $il2cppAnalyzer = Join-Path $ProjectRoot 'tools\analyze_il2cpp.mjs'
 $planPath = Join-Path $ProjectRoot 'reports\protocol_capture_plan.md'
 $runbookPath = Join-Path $ProjectRoot 'reports\dynamic_capture_runbook.md'
 
-foreach ($path in @($socketScript, $fridaScript, $fridaRunner, $fridaPackage, $il2cppAnalyzer, $planPath, $runbookPath)) {
+foreach ($path in @($socketScript, $fridaScript, $fridaRunner, $fridaCaptureHelper, $fridaPackage, $il2cppAnalyzer, $planPath, $runbookPath)) {
     Assert-True (Test-Path -LiteralPath $path -PathType Leaf) "Required file missing: $path"
+}
+
+node --check $fridaCaptureHelper
+if ($LASTEXITCODE -ne 0) {
+    throw 'Frida capture helper failed JavaScript syntax validation'
+}
+
+$fridaCaptureHelperContent = Get-Content -Raw -LiteralPath $fridaCaptureHelper
+foreach ($requiredToken in @(
+    'addRemoteDevice',
+    'device.spawn',
+    'device.resume',
+    'session.detach',
+    'uncaughtException',
+    'unhandledRejection'
+)) {
+    Assert-True ($fridaCaptureHelperContent.Contains($requiredToken)) "Frida capture helper must implement $requiredToken"
 }
 
 $fridaPackageContent = Get-Content -Raw -LiteralPath $fridaPackage | ConvertFrom-Json

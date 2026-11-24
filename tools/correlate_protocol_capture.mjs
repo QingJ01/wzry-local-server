@@ -121,6 +121,14 @@ async function loadJsonObject(filePath) {
     return value;
 }
 
+async function loadSnapshotObject(filePath) {
+    const value = await loadJsonObject(filePath);
+    if (!Array.isArray(value.connections)) {
+        throw new Error(`Socket snapshot ${filePath} has no connections array`);
+    }
+    return value;
+}
+
 async function loadJsonl(filePath, invalidLines, parseEvent) {
     const stream = createReadStream(filePath, {
         encoding: 'utf8'
@@ -229,10 +237,12 @@ function endpointClassification(endpoint) {
 function createCollector() {
     return {
         invalid: [],
+        invalidSocketInputs: [],
         socketSnapshots: [],
         socketConnections: [],
         fridaFiles: [],
         fridaEvents: [],
+        fridaHookEvents: [],
         endpoints: new Map()
     };
 }
@@ -325,10 +335,15 @@ function parseSocketSnapshot(documentValue, filePath) {
         capturedAt,
         serial: documentValue.serial || null,
         package: documentValue.package || null,
-        processId: documentValue.processId || null,
-        uid: documentValue.uid ?? null,
+        processId: parseProcessIdentity(documentValue.processId),
+        uid: parseProcessIdentity(documentValue.uid),
         connectionCount: documentValue.connections.length
     };
+}
+
+function parseProcessIdentity(value) {
+    const identity = Number(value);
+    return Number.isInteger(identity) && identity >= 0 ? identity : null;
 }
 
 function parseSocketConnection(documentValue, snapshot) {
@@ -343,8 +358,8 @@ function parseSocketConnection(documentValue, snapshot) {
         capturedAt: snapshot.capturedAt,
         table: documentValue.Table || null,
         state: documentValue.State || null,
-        uid: Number.isFinite(documentValue.Uid) ? documentValue.Uid : null,
-        inode: Number.isFinite(inode) ? inode : null
+        uid: parseProcessIdentity(documentValue.Uid),
+        inode: parseProcessIdentity(inode)
     };
 }
 
@@ -380,11 +395,15 @@ function parseFridaEvent(value, filePath, lineNumber) {
         line: lineNumber,
         timestamp,
         type: typeof value.type === 'string' ? value.type : 'unknown',
+        hookName: typeof value.hook === 'string' ? value.hook : null,
         phase: inferPhase(filePath),
         endpoint: normalizeFridaEndpoint(value.endpoint),
         descriptor: Number.isInteger(value.descriptor) ? value.descriptor : null,
         direction: value.direction === 'outbound' || value.direction === 'inbound' ? value.direction : null,
         functionName: typeof value.function === 'string' ? value.function : null,
+        hookName: typeof value.hook === 'string' ? value.hook : null,
+        module: typeof value.module === 'string' ? value.module : null,
+        exportName: typeof value.export === 'string' ? value.export : null,
         requestedLength: Number.isFinite(value.requestedLength) ? value.requestedLength : null,
         actualLength: Number.isFinite(value.actualLength) ? value.actualLength : null,
         hasPreview: typeof value.previewHex === 'string' && value.previewHex.length > 0
@@ -421,6 +440,19 @@ function ownershipConsistent(ownership) {
     }
     const first = ownership[0];
     return ownership.every(entry => entry.processId === first.processId && entry.uid === first.uid && entry.package === first.package);
+}
+
+function processOwnershipMatches(record, processId, uid, packageId) {
+    return record.processOwnership.some(entry =>
+        entry.processId === processId &&
+        entry.uid === uid &&
+        entry.package === packageId
+    );
+}
+
+function socketDataIsProcessOwned(collector, event) {
+    return event.descriptor === null || collector.endpoints.size === 0 || [...collector.endpoints.values()]
+        .some(record => record.descriptors.includes(event.descriptor) && record.sources.includes('process-socket'));
 }
 
 function endpointConfidence(record) {
@@ -530,6 +562,9 @@ function renderMarkdown(result) {
     lines.push(`- Frida events: **${result.input.fridaEvents}**`);
     lines.push(`- Outbound socket events: **${result.input.fridaOutboundEvents}**`);
     lines.push(`- Inbound socket events: **${result.input.fridaInboundEvents}**`);
+    lines.push(`- Attached socket hooks: **${result.input.fridaAttachedHooks}**`)
+    lines.push(`- Missing socket hooks: **${result.input.fridaMissingHooks}**`)
+    lines.push(`- Unowned socket-data events: **${result.unownedFridaEventCount}**`)
     lines.push(`- Evidence completeness: **${result.evidenceStatus}**`);
     lines.push('');
     lines.push('Raw byte previews are not copied into this report. They remain only in local capture files.');
@@ -590,6 +625,9 @@ function renderMarkdown(result) {
     } else {
         lines.push(`- Invalid Frida JSONL lines: **${result.dataQuality.invalidJsonLines}**.`);
     }
+    for (const input of result.dataQuality.invalidSocketInputs) {
+        lines.push(`- Invalid socket snapshot skipped: ${input.source}: ${input.error}`);
+    }
     lines.push('');
     lines.push('## Current blockers');
     lines.push('');
@@ -607,7 +645,16 @@ async function loadInputs(collector) {
     const fridaFiles = fridaFileGroups.flat();
 
     for (const filePath of socketFiles) {
-        const documentValue = await loadJsonObject(filePath);
+        let documentValue;
+        try {
+            documentValue = await loadSnapshotObject(filePath);
+        } catch (error) {
+            collector.invalidSocketInputs.push({
+                source: filePath,
+                error: error.message
+            });
+            continue;
+        }
         const snapshot = parseSocketSnapshot(documentValue, filePath);
         snapshot.sha256 = await hashFile(filePath);
         collector.socketSnapshots.push(snapshot);
@@ -639,6 +686,9 @@ async function loadInputs(collector) {
         const load = await loadJsonl(filePath, parser.invalid, (value, source, line) => {
             const event = parseFridaEvent(value, source, line);
             collector.fridaEvents.push(event);
+            if (event.type === 'hook-attached' || event.type === 'hook-missing') {
+                collector.fridaHookEvents.push(event);
+            }
             if (event.endpoint) {
                 recordEndpoint(collector, event.endpoint, 'frida', {
                     timestamp: event.timestamp,
@@ -679,6 +729,8 @@ async function main() {
     const outboundEvents = collector.fridaEvents.filter(event => event.direction === 'outbound' && event.type === 'socket-data').length;
     const inboundEvents = collector.fridaEvents.filter(event => event.direction === 'inbound' && event.type === 'socket-data').length;
     const processOwnedConnections = collector.socketConnections.length;
+    const attachedHooks = collector.fridaHookEvents.filter(event => event.type === 'hook-attached').length;
+    const missingHooks = collector.fridaHookEvents.filter(event => event.type === 'hook-missing').length;
     const evidenceStatus = outboundEvents > 0 || inboundEvents > 0 || processOwnedConnections > 0
         ? 'insufficient-for-protocol-recovery'
         : 'no-dynamic-evidence';
@@ -686,6 +738,9 @@ async function main() {
     const warnings = [];
     if (collector.socketSnapshots.length === 0) {
         warnings.push('No process-socket snapshots were supplied; endpoint ownership is unavailable.');
+    }
+    if (collector.invalidSocketInputs.length > 0) {
+        warnings.push(`${collector.invalidSocketInputs.length} supplied socket JSON file(s) were skipped because they were not valid socket snapshots.`);
     }
     if (collector.fridaFiles.length === 0) {
         warnings.push('No Frida JSONL captures were supplied; socket byte direction and lengths are unavailable.');
@@ -702,6 +757,19 @@ async function main() {
     if (collector.invalid.length > 0) {
         warnings.push(`Capture parsing encountered ${collector.invalid.length} invalid JSONL line(s).`);
     }
+    const unownedFridaEvents = collector.fridaEvents.filter(event => event.type === 'socket-data' && !socketDataIsProcessOwned(collector, event));
+    if (unownedFridaEvents.length > 0) {
+        warnings.push(`${unownedFridaEvents.length} Frida socket-data event(s) lack matching process-owned fd/inode evidence.`);
+    }
+    if (collector.fridaFiles.length > 0 && collector.fridaHookEvents.length === 0) {
+        warnings.push('No Frida hook attach events were detected; hook installation is unverified.');
+    }
+    if (missingHooks > 0) {
+        warnings.push(`${missingHooks} Frida hook export(s) were missing.`);
+    }
+    if (collector.fridaFiles.length > 0 && attachedHooks === 0) {
+        warnings.push('No Frida hooks were successfully attached; socket evidence is unusable.');
+    }
 
     const result = {
         schemaVersion: 1,
@@ -714,9 +782,13 @@ async function main() {
             fridaEvents: collector.fridaEvents.length,
             fridaOutboundEvents: outboundEvents,
             fridaInboundEvents: inboundEvents,
+            fridaHookEvents: collector.fridaHookEvents.length,
+            fridaAttachedHooks: attachedHooks,
+            fridaMissingHooks: missingHooks,
             socketSnapshots: collector.socketSnapshots,
             fridaFiles: collector.fridaFiles
         },
+        unownedFridaEventCount: unownedFridaEvents.length,
         endpoints: endpointResults,
         findings: [
             {
@@ -759,7 +831,16 @@ async function main() {
         dataQuality: {
             invalidJsonLines: collector.invalid.length,
             invalidJsonLineSamples: collector.invalid.slice(0, 10),
+            invalidSocketInputs: collector.invalidSocketInputs.slice(0, 10),
             warnings
+        },
+        hookEvidence: {
+            attached: collector.fridaHookEvents
+                .filter(event => event.type === 'hook-attached')
+                .map(event => ({ source: event.source, line: event.line, module: event.module, export: event.exportName, timestamp: event.timestamp })),
+            missing: collector.fridaHookEvents
+                .filter(event => event.type === 'hook-missing')
+                .map(event => ({ source: event.source, line: event.line, module: event.module, export: event.exportName, timestamp: event.timestamp }))
         },
         blockers: [
             'No numeric message-ID registry is proven.',

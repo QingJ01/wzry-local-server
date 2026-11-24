@@ -15,7 +15,7 @@ param(
 
 $ErrorActionPreference = 'Stop'
 
-$ProjectRoot = Split-Path -Parent (Split-Path -Parent $PSCommandPath)
+$ProjectRoot = Split-Path -Parent $PSCommandPath | Split-Path -Parent | Split-Path -Parent
 $AdbPath = 'D:\project\poxxiao\tools\android-sdk\platform-tools\adb.exe'
 $Package = 'com.tencent.tmgp.sgame'
 $DeviceServerPath = '/data/local/tmp/wzry-frida-server-17.27.5'
@@ -35,7 +35,7 @@ function Invoke-Adb {
 }
 
 function Get-ServerPid {
-    $pidOutput = Invoke-Adb @('shell', "su -c 'pgrep -f `"${DeviceServerPath} -l 127.0.0.1:${ServerPort}`" || true'")
+    $pidOutput = Invoke-Adb @('shell', "su -c 'pgrep -x wzry-frida-serv || true'")
     $trimmedPid = "$pidOutput".Trim()
     if ($trimmedPid -match '^[0-9]+$') {
         return [int]$trimmedPid
@@ -124,9 +124,9 @@ switch ($Action) {
         $runId = Get-Date -Format 'yyyyMMdd-HHmmss'
         $logPath = Join-Path $ObservationDirectory "$runId.ndjson"
         $stderrPath = "$logPath.stderr"
-        $nodeCli = Join-Path $ProjectRoot 'tools\frida\node_modules\.bin\frida.cmd'
-        if (-not (Test-Path -LiteralPath $nodeCli -PathType Leaf)) {
-            throw "Frida CLI not installed. Run npm --prefix tools\frida\ install first."
+        $nodePath = (Get-Command node -ErrorAction SilentlyContinue).Source
+        if (-not (Test-Path -LiteralPath $nodePath -PathType Leaf)) {
+            throw 'Node.js not found on PATH'
         }
 
         Write-RunNote @{
@@ -136,12 +136,12 @@ switch ($Action) {
             captureSeconds = $CaptureSeconds
         }
 
-        $process = Start-Process -FilePath $nodeCli `
+        $process = Start-Process -FilePath $nodePath `
             -ArgumentList @(
-                '-H', "127.0.0.1:$ServerPort",
-                '-f', $Package,
-                '-l', (Join-Path $ProjectRoot 'tools\frida\wzry-network.js'),
-                '--no-pause'
+                (Join-Path (Split-Path -Parent $PSCommandPath) 'run-network-capture.mjs'),
+                (Join-Path $ObservationDirectory $runId),
+                $logPath,
+                $CaptureSeconds
             ) `
             -WorkingDirectory $ProjectRoot `
             -RedirectStandardOutput $logPath `

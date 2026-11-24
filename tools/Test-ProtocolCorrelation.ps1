@@ -106,6 +106,17 @@ $events = @(
 )
 $events | ForEach-Object { $_ | ConvertTo-Json -Compress } | Set-Content -LiteralPath (Join-Path $fridaDirectory 'login-capture.jsonl')
 'not-json' | Add-Content -LiteralPath (Join-Path $fridaDirectory 'login-capture.jsonl')
+@{
+    timestamp = '2026-11-24T10:00:05.000Z'
+    type = 'hook-attached'
+    module = 'libc.so'
+    hook = 'connect'
+    export = 'connect'
+} | ConvertTo-Json -Compress | Add-Content -LiteralPath (Join-Path $fridaDirectory 'login-capture.jsonl')
+
+$unrelatedDirectory = Join-Path $fixtureRoot 'unrelated-json'
+New-Item -ItemType Directory -Force -Path $unrelatedDirectory | Out-Null
+@{ notASnapshot = $true } | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $unrelatedDirectory 'lifecycle.json')
 
 node $analyzer `
     --sockets $socketDirectory `
@@ -123,11 +134,14 @@ if ($result.schemaVersion -ne 1) {
 if ($result.input.processSocketSnapshots -ne 1) {
     throw 'Fixture must produce one process-socket snapshot'
 }
-if ($result.input.fridaEvents -ne 4) {
-    throw 'Fixture must parse four valid Frida events'
+if ($result.input.fridaEvents -ne 5) {
+    throw 'Fixture must parse five valid Frida events'
 }
 if ($result.input.fridaOutboundEvents -ne 2 -or $result.input.fridaInboundEvents -ne 1) {
     throw 'Fixture direction counts are incorrect'
+}
+if ($result.input.fridaAttachedHooks -ne 1 -or $result.input.fridaMissingHooks -ne 0) {
+    throw 'Fixture hook evidence counts are incorrect'
 }
 if ($result.dataQuality.invalidJsonLines -ne 1) {
     throw 'Fixture must detect one invalid JSONL line'

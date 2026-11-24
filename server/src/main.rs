@@ -89,11 +89,21 @@ fn handle_http_connection(
     let result = http::route_with_handler(&request.bytes, state, &handler);
     let status = response_status(&result);
     let response = http::response_for(result);
+    let method_and_path = String::from_utf8_lossy(&request.bytes)
+        .split("\r\n")
+        .next()
+        .map(str::to_owned);
+    let mut observation = wzry_local_server::store::Observation::now("http");
+    observation.source = method_and_path;
+    observation.bytes = request.bytes.len();
+    observation.status = status;
+    store.add_observation(observation);
     let _ = stream.write_all(&response);
     println!("HTTP request completed with status {}", status);
 }
 
 fn handle_frame_connection(stream: &mut TcpStream, store: Arc<dyn Store>) {
+    let source = stream.peer_addr().map(|address| address.to_string()).ok();
     let mut parser = FrameParser::new(FrameConfig {
         max_packet_bytes: 1048576,
     });
@@ -104,14 +114,12 @@ fn handle_frame_connection(stream: &mut TcpStream, store: Arc<dyn Store>) {
             Ok(read) => match parser.feed(&buffer[..read]) {
                 Ok(frames) => {
                     for frame in frames {
-                        store.add_observation(wzry_local_server::store::Observation {
-                            channel: "tcp",
-                            method_id: None,
-                            command: Some(frame.command),
-                            sequence: Some(frame.sequence),
-                            bytes: frame.body.len(),
-                            status: 200,
-                        });
+                        let mut observation = wzry_local_server::store::Observation::now("tcp");
+                        observation.source = source.clone();
+                        observation.command = Some(frame.command);
+                        observation.sequence = Some(frame.sequence);
+                        observation.bytes = frame.body.len();
+                        store.add_observation(observation);
                     }
                 }
                 Err(_) => {

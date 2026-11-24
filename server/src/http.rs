@@ -16,13 +16,27 @@ pub enum RequestHandler<'a> {
 #[derive(Clone, Copy)]
 pub struct AppState {
     pub http_body_bytes: usize,
+    pub max_observations: usize,
     pub epoch: u64,
+}
+
+impl AppState {
+    pub fn observation_page(&self, store: &Arc<dyn Store>) -> Vec<Observation> {
+        store
+            .observations()
+            .into_iter()
+            .rev()
+            .take(self.max_observations)
+            .rev()
+            .collect()
+    }
 }
 
 impl Default for AppState {
     fn default() -> Self {
         Self {
             http_body_bytes: 65536,
+            max_observations: 1000,
             epoch: 1,
         }
     }
@@ -179,17 +193,19 @@ pub fn route_with_handler(
                     store: Some(store), ..
                 } => store,
             };
-            let observations = store
-                .observations()
+            let observations = state
+                .observation_page(store)
                 .into_iter()
                 .map(|observation| {
                     serde_json::json!({
                         "channel": observation.channel,
+                        "source": observation.source,
                         "methodId": observation.method_id,
                         "command": observation.command,
                         "sequence": observation.sequence,
                         "bytes": observation.bytes,
                         "status": observation.status,
+                        "recordedAtUnixMs": observation.recorded_at_unix_ms,
                     })
                 })
                 .collect::<Vec<_>>();
@@ -203,14 +219,11 @@ pub fn route_with_handler(
             let payload: GameRequest =
                 serde_json::from_slice(body).map_err(|_| RouteError::InvalidJson)?;
             let store = store(handler).expect("store handler");
-            store.add_observation(Observation {
-                channel: "http",
-                method_id: Some(payload.method_id),
-                command: None,
-                sequence: None,
-                bytes: body.len(),
-                status: 501,
-            });
+            let mut observation = Observation::now("http");
+            observation.method_id = Some(payload.method_id);
+            observation.bytes = body.len();
+            observation.status = 501;
+            store.add_observation(observation);
             Err(RouteError::ProtocolNotImplemented)
         }
         _ => route_domain(request, state, handler),
