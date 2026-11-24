@@ -29,6 +29,8 @@ $env:WZRY_FRAME_ADDR = "127.0.0.1:19621"
 - `POST /game`：观测 `{ "methodId": ..., "body": ... }`，未知协议返回 `501` 并记录。
 - `GET /debug/observations`：只读查看 HTTP/TCP 观测记录。
 
+观测记录包含来源、字节数、状态和 Unix 毫秒时间戳。`/debug/observations` 只返回最近 1,000 条，内存审计日志最多保留 10,000 条；`wzry_local_server::export_observations_jsonl` 可导出最近 10,000 条 JSON Lines。观测只证明请求到达本地服务，不表示已解码或验证客户端协议。
+
 认证接口使用 `Authorization: Bearer <token>`。
 
 ## 测试
@@ -38,4 +40,4 @@ cargo fmt --check
 cargo test
 ```
 
-当前测试覆盖账号/对战/商城领域流、帧分片/粘包/超限、HTTP JSON 错误、Content-Length 精确读取、并发客户端和观测接口。
+当前测试覆盖账号/对战/商城领域流、帧分片/粘包/超限、HTTP JSON 错误、Content-Length 精确读取、并发客户端、观测接口、观测日志上限和 JSONL 导出。

@@ -6,6 +6,7 @@ pub struct Observation {
     pub recorded_at_unix_ms: u64,
     pub channel: &'static str,
     pub source: Option<String>,
+    #[serde(rename = "methodId")]
     pub method_id: Option<u64>,
     pub command: Option<u16>,
     pub sequence: Option<u16>,
