@@ -55,3 +55,63 @@ Device `192.168.5.102:5555` (NetEase MuMu emulator, x86_64, Houdini ARM translat
 - Capture a full game-side logcat from launch to death filtered on the game PID to find the check's log lines before the SIGKILL (e.g., `tprotect`, `msdk`, `AntiCheat`, `terrible`, `env`, `emulator`, `houdini`, `root` tags).
 - Diff `su`/`magisk` visibility: the game may check `su` in PATH, `magisk` props, `frida` port 27042, or `libhoudini` maps entries. Each is a separate patch/hide lever.
 - Only after the process survives past the self-check window (target: >180 s foreground) should login/lobby progression resume; otherwise UI state never persists.
+
+---
+
+# Kill-attribution audit — 2026-11-24 (session 4, read-only)
+
+Device `192.168.5.102:5555`. All evidence gathered via `adb`/`su` reads and `logcat -d`/`dumpsys`; no persistent system config touched, no service disabled, no app force-stopped. Package `com.tencent.tmgp.sgame` was already dead when this audit started (last death 19:56:17), so the audit inspects the recorded death window, not a new run.
+
+## Attribution result (final)
+
+- The dominant and now **proven** kill is a self-inflicted `SIGKILL` inside the game process, delivered through Houdini. Decisive line: `19:56:17.686  houdini [21217] [SIGKILL] kill: pid = 21187, tid = 21217, signo = 9`. The sender `tid 21217` belongs to the game's own process (PID 21187). ~0.5 s later `19:56:18.210 AccServiceManager.onAppClose` and `AccInterceptManager.onAccInterceptConfirm hasAccSuccess = false` only record the death — they do not cause it.
+- `AccServiceManager.onAppLaunch` fires *after* the app's own first logs (Houdini init at `15.272` vs `onAppLaunch` at `15.817`), and `onAccInterceptConfirm` logs `hasAccSuccess = false` — com.mumu.acc's accelerator intercept **observes** `sgame` but never accelerates it and never kills it.
+- The earlier `Force stopping com.tencent.tmgp.sgame from pid 4076 / 20274` was a *different, rarer* path (external `am force-stop`). It is not the cause of the recurring ~20–60 s foreground deaths. PIDs 4076/20274 were transient and gone by inspection time; no persistent user-space killer for `sgame` exists on this device.
+- The two `tombstone_16/17` shell `Shutdown thread` SIGSEGVs are UID-2000 `uiautomator`/`adb` x86 shutdown artifacts, unrelated.
+
+## Per-component audit
+
+- `com.mumu.acc` (PID 2019, priv-app, `versionName=1.0.75`, targetSdk 33): foreground `.AccService` + `AccMsgReceiver`/`AccInterceptReceiver` + `RomSdkVpnService`. Receives `onAppLaunch`/`onAppClose`. Logs `hasAccSuccess=false` → it is passive here. **Not a killer.** It can `force-stop` apps it actively accelerates, but it has not accelerated `sgame`, so it is not the source of `pid 4076/20274`-style force-stops either (those came from `am`, uid 2000/1000).
+- `Yurikey` (`service.sh`, `Yuri/`): `auto_fetch_loop.sh` idle (`state=idle,interval_sec=0`, only ticks `/data/adb/Yurikey/auto_status.txt`); `kill_all.sh`/`kill_google_process.sh` target Google + detector packages only (`vending,gsf,gms,keyattestation,nativecheck,riskdetector,hunter,holmes…`), **not** `sgame`. `target_txt.sh` writes `tricky_store/target.txt` (contains `sgame`) so TrickyStore serves a spoofed keybox to it. No game kill.
+- `Violet` (`service.sh`): on boot writes the HMA config once, then an hourly loop regenerates `tricky_store/target.txt` from `pm list packages -3/-s` (union, keeps manual entries). No runtime kill of `sgame`.
+- `HMA` (`hma_oss_zygisk` + `/data/misc/hide_my_applist*/config.json`): scope entry for `sgame` is present with `useWhitelist=true` + `白名单` template — hiding is **configured**, but the whitelist app list itself also contains `sgame` (it hides *other* apps *from* sgame's queries). HMA does not hide the detection surface that fires the self-SIGKILL.
+- `TrickyStore`: `target.txt` = `{meituan, sgame, xfight}` (user-app scan). Supplies attestation answers; no kill role.
+- `LSPosed` (`zygisk_lsposed`, `lspd`, `zn-zygisk-companion64`): `XposedInit init_v4` is visible inside the game process logs — a module is injected. That injection is a *detection input*, not the kill mechanism.
+- `Houdini` (`/system/lib64/libhoudini.so` v7 NetEase, `ro.dalvik.vm.native.bridge=libnb.so`): it is the *messenger* of the SIGKILL. `nativebridge RedirectTranslator` err at `15.243` + `Found libhoudini version 7` shows the game's arm64 code runs under Houdini from the first frame.
+
+## Detection-surface evidence (why the game self-SIGKILLs)
+
+Read-observed facts the app's integrity/emulator check can see:
+
+- `ro.build.hv.platform = vbox` and `qemu.hw.mainkeys = 1` — explicit virtual-hardware fingerprints that are NOT covered by Yurikey's property resets (which only cover boot/verity/debug/su props).
+- `ro.dalvik.vm.isa.arm64 = x86_64` and `ro.dalvik.vm.native.bridge = libnb.so` — declares arm64 is emulated; an arm64-targeted game sees it is running under translation.
+- `/proc/<pid>/maps` for `sgame` will list `libhoudini.so`/`libnb.so` (loaded at `15.272`) — an in-process tell.
+- `wzry-frida-server-17.27.5` PID 18358 listening `127.0.0.1:27042` — a live frida port is a high-confidence self-kill trigger. `ps -A` shows it plainly.
+- `/system/bin/su` present (Magisk su) + `su -c id` works → root is real; `ro.debuggable`/`ro.secure` props are reset to `0`/`1` but `su` binary + working `su` are still discoverable.
+- Timing matches a delayed background check, not launch gating: `19:51` run killed ~21 s after start (~9 s after permission confirm); `19:55:15` run killed at `19:56:17` = 62 s after start. The check runs on a worker thread (the `tid` that issues the kill is a worker, not the main thread).
+
+## Conclusion — most-likely stability levers (ranked)
+
+The self-SIGKILL is an in-app anti-emulator/anti-tamper verdict. To survive past ~180 s foreground:
+
+1. **Kill the frida port first** (cheapest, highest-confidence): `taskkill`/`kill` `wzry-frida-server` before launching `sgame` (revert = restart it). Port 27042 + `frida` maps are the loudest single tell.
+2. **Hide `su`** for `sgame` only: add `sgame` to Magisk/ZygiskSu denylist so `su` + `magisk` props vanish for that process (revert = remove denylist entry).
+3. **Neutralize the check in the client** (most durable): hook the game's env-scan worker — `tools/frida/run-kill-trace.mjs` already exists to capture the `kill(9)`/`abort`/`exit` call site + backtrace, which pinpoints the exact check to patch.
+4. **Emulator-property masking** (partial, lower confidence): `vbox`/`qemu.hw.mainkeys`/native-bridge props are not in Yurikey's reset list; masking them is fragile and incomplete.
+
+## Rollback-safe experiment checklist (no persistent config change)
+
+Each step is independently reversible; run in order, cold-start `sgame` after each and measure foreground lifetime (target > 180 s):
+
+- [ ] E1 — Kill frida-server: `adb shell su -c "kill 18358"` → cold start → time-to-death. Revert: relaunch frida-server.
+- [ ] E2 — Add `sgame` to denylist: `adb shell magisk --denylist add com.tencent.tmgp.sgame` → reboot or `am force-stop` + cold start. Revert: `magisk --denylist rm`.
+- [ ] E3 — Capture the kill site: `node tools/frida/run-kill-trace.mjs <log> 120` while frida is still up → records the exact native call site issuing `kill(9)` for surgical patching.
+- [ ] E4 — If still dying, try running `sgame` with native bridge off / arm-only vs forcing x86 path — isolates whether the check is Houdini-specific.
+- [ ] E5 — (diagnostic only, not a fix) disable `com.mumu.acc` VPN/acceleration for a run to confirm zero effect on the self-SIGKILL.
+
+## Evidence pointers
+
+- `logcat` lines above (19:55:15–19:56:18 window): Houdini init → `AccServiceManager.onAppLaunch` → `houdini [SIGKILL] kill: pid=21187 tid=21217` → `onAppClose`/`onAccInterceptConfirm hasAccSuccess=false`.
+- `tools/frida/wzry-kill-trace.js` + `run-kill-trace.mjs` (untracked) — pre-built hook for E3.
+- `/data/adb/modules/{Yurikey,Violet,hma_oss_zygisk,zygisk_lsposed,zygisksu}` — all inspected read-only.
+- HMA scope for `sgame` confirmed (`useWhitelist` + `白名单`).
