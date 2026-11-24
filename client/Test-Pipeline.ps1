@@ -87,6 +87,16 @@ $validationPlan = Join-Path $ProjectRoot 'workspace\apk\pipeline-validation-outp
 $validationText = Get-Content -Raw -LiteralPath $validationPlan
 Assert-True ($validationText.Contains('Validated 4 binary replacement(s)')) 'Build script must validate control-plane patch plan'
 
+$buildScriptAst = [System.Management.Automation.Language.Parser]::ParseFile($buildScript, [ref]$null, [ref]$null)
+$writeEntryFunction = $buildScriptAst.Find({
+    param($node)
+    $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and
+    $node.Name -eq 'Write-EntryBytes'
+}, $true)
+Assert-True ($null -ne $writeEntryFunction) 'Build script must define Write-EntryBytes'
+Assert-True ($writeEntryFunction.Body.Extent.Text.Contains('Get-EntryCompressionLevel')) 'Build script must preserve ZIP compression policy'
+Assert-True ($buildContent.Contains("EntryPath -eq 'resources.arsc'")) 'Build script must store resources.arsc uncompressed'
+
 Assert-Throws {
     & $installScript -Apk (Join-Path $ProjectRoot 'missing.apk') -Serial '192.168.5.102:5555' -SkipDeviceConnect
 } 'Install script must reject missing APK' 'APK not found'

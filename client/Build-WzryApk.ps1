@@ -115,7 +115,7 @@ function Write-EntryBytes {
     if ($existingEntry) {
         $existingEntry.Delete()
     }
-    $entry = $Archive.CreateEntry($EntryPath)
+    $entry = $Archive.CreateEntry($EntryPath, (Get-EntryCompressionLevel $EntryPath))
     $stream = $entry.Open()
     try {
         $stream.Write($Bytes, 0, $Bytes.Length)
@@ -123,6 +123,15 @@ function Write-EntryBytes {
     finally {
         $stream.Dispose()
     }
+}
+
+function Get-EntryCompressionLevel {
+    param([string]$EntryPath)
+
+    if ($EntryPath -eq 'resources.arsc' -or $EntryPath -like 'lib/*' -or $EntryPath -like 'assets/*') {
+        return [System.IO.Compression.CompressionLevel]::NoCompression
+    }
+    return [System.IO.Compression.CompressionLevel]::Optimal
 }
 
 function Assert-CommandPath {
@@ -170,8 +179,14 @@ Assert-CommandPath $keytool 'Keytool'
 Add-Type -AssemblyName System.IO.Compression.FileSystem
 
 $patch = Get-Content -Raw -LiteralPath $PatchManifest | ConvertFrom-Json
-$entries = @($patch.entries)
-$binaryPatches = @($patch.binaryPatches)
+$entries = @()
+if ($patch.PSObject.Properties['entries']) {
+    $entries = @($patch.PSObject.Properties['entries'].Value)
+}
+$binaryPatches = @()
+if ($patch.PSObject.Properties['binaryPatches']) {
+    $binaryPatches = @($patch.PSObject.Properties['binaryPatches'].Value)
+}
 $changes = @()
 
 $binaryPatchPlan = @()
