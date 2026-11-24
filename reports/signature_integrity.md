@@ -71,3 +71,21 @@ Experiment A (as actually installed = orig+orig-cert) survived → consistent wi
 - `workspace/observations/lifetime/A-orig-resign-20261124-204240-logcat.txt` — logcat around the window.
 - `tools/Run-ApkLifetimeMatrix.ps1` — reusable push+pm-install+watch+kill-evidence runner (now uses device-side `pm install`, avoids the adb-streaming stall).
 - apksigner digests recorded inline above; entry diff in `workspace/apk/store_layout_diff.json`.
+
+---
+
+## Reconciliation with sibling verdict (added after sibling report landed)
+
+A parallel specialist run (`/root/signature_integrity_swe2`, `reports/signature_integrity_verdict.md`) executed a **cleaner matrix on the same device before this report's Experiment A** and reached a stronger, better-controlled conclusion:
+
+- Their `B0 = Tencent-signed, zero-content-change` build was **also killed**, at t≈101 s, by `ActivityManager: Force stopping com.tencent.tmgp.sgame … from pid 41712` — an **external** force-stop, with **no** `tersafe`/integrity/tamper error in logcat. A pristine signed package dies too.
+- Therefore the recurring kill is **NOT triggered by the debug signature or the repack**. Two kill modes coexist:
+  1. **External force-stop** (`Force stopping … from pid <transient>`) — platform-level, signature-agnostic; prime suspect `com.mumu.acc` (MuMu accelerator) / `com.mumu.store`. This is the dominant attribution for the original signed build.
+  2. **In-process Houdini self-SIGKILL** (`houdini [SIGKILL] kill: pid=<self>`) on a ~60 s worker — observed on method0; an ARM→x86 integrity/env self-check. Whether it persists once the external killer is removed is untested.
+
+- Re-reading **this report's Experiment A**: the install was rejected, so the surviving 130 s process was the **original Tencent-signed** build — i.e., the same class as their B0. Its survival to 130 s vs their B0's death at 101 s is **timer variance within the same external-kill population**, not a signature/content effect. My run therefore does not isolate signature-vs-content and must not be read as "original is safe" — it is one sample of an intermittently-killed signed build.
+
+### Corrected conclusion
+- Signature change / repack is **ruled out as the primary trigger** by the sibling's B0 control (signed original dies identically).
+- The actionable lever is **R1**: neutralize the external platform killer (`pm disable-user com.mumu.acc`, optionally `com.mumu.store`), then re-measure both B0 and method0. Only if an in-process self-SIGKILL remains after the external killer is gone should we pursue R3 (native patch of the integrity self-check) or R2 (LSPosed PM-signature spoof as a secondary hardening). See `signature_integrity_verdict.md` for the R1/R2/R3 detail.
+- No new device experiments were possible: `192.168.5.102:5555` went `offline` mid-matrix and other devices belong to other projects.
