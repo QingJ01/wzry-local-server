@@ -50,7 +50,7 @@ $socketSnapshot = [ordered]@{
         [ordered]@{
             Table = 'tcp'
             LocalAddress = '7F000001:3039'
-            RemoteAddress = '0A7100CB:1F90'
+            RemoteAddress = 'CB00710A:1F90'
             State = 'ESTABLISHED'
             Uid = 10255
             Inode = 67890
@@ -123,6 +123,58 @@ $events | ForEach-Object { $_ | ConvertTo-Json -Compress } | Set-Content -Litera
     export = 'connect'
 } | ConvertTo-Json -Compress | Add-Content -LiteralPath (Join-Path $fridaDirectory 'login-capture.jsonl')
 
+# A wrapped Frida envelope (as emitted by run-network-capture.mjs) whose socketInode
+# matches the process-owned snapshot connection. The correlator must unwrap the
+# payload and prove ownership through the socket inode rather than the fd number.
+$wrapped = [ordered]@{
+    timestamp = '2026-11-24T10:00:06.000Z'
+    message = [ordered]@{
+        type = 'send'
+        payload = [ordered]@{
+            timestamp = '2026-11-24T10:00:06.000Z'
+            type = 'socket-data'
+            direction = 'inbound'
+            function = 'recv'
+            descriptor = 55
+            socketInode = 67890
+            endpoint = [ordered]@{ family = 'AF_INET'; address = '203.0.113.10'; port = 8080 }
+            requestedLength = 128
+            actualLength = 40
+        }
+    }
+    data = $null
+}
+$wrapped | ConvertTo-Json -Compress -Depth 8 | Add-Content -LiteralPath (Join-Path $fridaDirectory 'login-capture.jsonl')
+
+# A socket-data event on a foreign endpoint with no matching process-owned inode;
+# this one must remain unowned.
+$unowned = [ordered]@{
+    timestamp = '2026-11-24T10:00:07.000Z'
+    message = [ordered]@{
+        type = 'send'
+        payload = [ordered]@{
+            timestamp = '2026-11-24T10:00:07.000Z'
+            type = 'socket-data'
+            direction = 'outbound'
+            function = 'send'
+            descriptor = 99
+            socketInode = 424242
+            endpoint = [ordered]@{ family = 'AF_INET'; address = '198.51.100.7'; port = 9000 }
+            requestedLength = 32
+            actualLength = 32
+        }
+    }
+    data = $null
+}
+$unowned | ConvertTo-Json -Compress -Depth 8 | Add-Content -LiteralPath (Join-Path $fridaDirectory 'login-capture.jsonl')
+
+@{
+    startedAt = '2026-11-24T10:00:00.000Z'
+    packageId = 'com.tencent.tmgp.sgame'
+    pid = 1234
+    attachMode = $true
+} | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $fridaDirectory 'login-capture.jsonl.metadata.json')
+
 $unrelatedDirectory = Join-Path $fixtureRoot 'unrelated-json'
 New-Item -ItemType Directory -Force -Path $unrelatedDirectory | Out-Null
 @{ notASnapshot = $true } | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $unrelatedDirectory 'lifecycle.json')
@@ -143,10 +195,17 @@ if ($result.schemaVersion -ne 1) {
 if ($result.input.processSocketSnapshots -ne 2) {
     throw 'Fixture must produce two process-socket snapshots'
 }
-if ($result.input.fridaEvents -ne 5) {
-    throw 'Fixture must parse five valid Frida events'
+if ($result.input.fridaEvents -ne 7) {
+    throw 'Fixture must parse seven valid Frida events'
 }
-if ($result.input.fridaOutboundEvents -ne 2 -or $result.input.fridaInboundEvents -ne 1) {
+# The snapshot remote 0A7100CB:1F90 is little-endian 203.0.113.10:8080, the same
+# endpoint the three fd-12 socket-data events and the inode-67890 wrapped event ride
+# on; those are process-owned. The 198.51.100.7:9000 event (inode 424242) has no
+# matching process-owned inode and must be the only unowned socket-data event.
+if ($result.unownedFridaEventCount -ne 1) {
+    throw 'Fixture must leave exactly the foreign-endpoint event unowned'
+}
+if ($result.input.fridaOutboundEvents -ne 3 -or $result.input.fridaInboundEvents -ne 2) {
     throw 'Fixture direction counts are incorrect'
 }
 if ($result.input.fridaAttachedHooks -ne 1 -or $result.input.fridaMissingHooks -ne 0) {

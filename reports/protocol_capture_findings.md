@@ -1,18 +1,18 @@
 # Protocol capture findings
 
-Generated: 2026-11-24T11:27:43.220Z
+Generated: 2026-11-24T11:58:52.846Z
 
 This report merges process-owned socket observations and Frida socket events. It records endpoint, direction, and length evidence only. It does not infer frame headers, command IDs, encryption, compression, or schemas from static names or byte previews.
 
 ## Evidence status
 
-- Process-socket snapshots: **3**
-- Process-owned connections: **2**
-- Frida files: **8**
-- Frida events: **97**
-- Outbound socket events: **3**
-- Inbound socket events: **0**
-- Attached socket hooks: **52**
+- Process-socket snapshots: **7**
+- Process-owned connections: **6**
+- Frida files: **15**
+- Frida events: **231**
+- Outbound socket events: **6**
+- Inbound socket events: **3**
+- Attached socket hooks: **132**
 - Missing socket hooks: **0**
 - Unowned socket-data events: **3**
 - Evidence completeness: **insufficient-for-protocol-recovery**
@@ -25,8 +25,11 @@ The `game-candidate` label means only that the endpoint is non-HTTP and process/
 
 | Endpoint | Sources | Classification | Confidence | Out / In | Actual length range | Phase |
 | --- | --- | --- | --- | ---: | --- | --- |
+| 122.96.96.251:10012 | frida | game-candidate | low | 0 / 0 | n/a | unlabeled |
+| 0:0:0:0:0:ffff:71c8:29eb:443 | frida | http-control-plane | low | 0 / 0 | n/a | unlabeled |
 | 00000000:00000000:FFFF0000:57F2C971:443 | process-socket | http-control-plane | low | 0 / 0 | n/a | unlabeled |
 | 00000000:00000000:FFFF0000:EB29C871:443 | process-socket | http-control-plane | low | 0 / 0 | n/a | unlabeled |
+| ::ffff:113.200.41.235:443 | frida | http-control-plane | low | 3 / 3 | 85–4235 | unlabeled |
 
 ## Protocol findings
 
@@ -43,9 +46,9 @@ The `game-candidate` label means only that the endpoint is non-HTTP and process/
 
 | Flow | Status | Bidirectional | Process-owned | Repeated socket evidence |
 | --- | --- | --- | --- | --- |
-| account | insufficient | false | true | true |
-| battle | insufficient | false | true | true |
-| shop | insufficient | false | true | true |
+| account | needs-semantic-confirmation | true | true | true |
+| battle | needs-semantic-confirmation | true | true | true |
+| shop | needs-semantic-confirmation | true | true | true |
 
 A `needs-semantic-confirmation` gate still cannot pass: every flow requires consistent command grouping and a response-before-state-change sequence. No flow is complete in this report unless those conditions and the runbook gates are explicitly added.
 
@@ -71,7 +74,6 @@ Static anchors are listed as correlation targets. Correlation requires runtime c
 ## Data quality
 
 - 2 supplied socket JSON file(s) were skipped because they were not valid socket snapshots.
-- At least one socket direction is missing; bidirectional framing cannot be evaluated.
 - At least one Frida file has no recognized UI phase in its filename.
 - Capture parsing encountered 1 invalid JSONL line(s).
 - 3 Frida socket-data event(s) lack matching process-owned fd/inode evidence.

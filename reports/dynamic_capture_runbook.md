@@ -171,6 +171,20 @@ frida -U -f $Package `
   --no-pause *>> $FridaLog
 ```
 
+Label every capture file with its UI phase so the correlator and capture matrix can
+group evidence by phase; unlabeled captures cannot satisfy a phase gate. Prefix the
+output `.ndjson` filename with one of `cold-start`, `login`, `lobby`, `room`,
+`battle`, `shop`, `settlement`, `consent`, or `first-screen`, for example
+`login-20261124-194343.ndjson`. When using `Run-NetworkCapture.ps1 -Action run`,
+rename the produced `$runId.ndjson` to include the phase prefix immediately after
+the session ends:
+
+```powershell
+$log = powershell -NoProfile -ExecutionPolicy Bypass -File .\tools\frida\Run-NetworkCapture.ps1 `
+  -Action run -CaptureSeconds 90
+Rename-Item $log "login-$(Split-Path $log -Leaf)"
+```
+
 If an ADB-forwarded server port is required, replace `-U` with the matching host CLI option for that port; do not invent a port. Record the exact invocation, Frida versions, server path, server port, start time, stop time, and UI states in a run note.
 
 Preservation rules:
@@ -224,6 +238,16 @@ Do not buy a non-refundable, limited, or account-visible item during a first pas
 Pass evidence requires request/response correlation, distinguishable list and purchase actions, and a response that precedes the UI result in two sessions. If traffic occurs only while opening a cached list, shop protocol work remains unproven.
 
 ## Result determination
+
+Track progress against the minimum rounds with the capture matrix evaluator. It
+indexes phase-tagged socket snapshots, Frida captures, and HTTP observations, groups
+them into independent rounds, and reports which gates are met:
+
+```powershell
+node .\tools\capture_matrix.mjs `
+  --output .\workspace\observations\capture-matrix.json `
+  --markdown .\reports\capture_matrix.md
+```
 
 Use this evidence table for each candidate protocol:
 

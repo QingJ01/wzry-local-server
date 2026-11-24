@@ -129,6 +129,21 @@ async function loadSnapshotObject(filePath) {
     return value;
 }
 
+async function loadFridaMetadata(filePath) {
+    try {
+        const value = await loadJsonObject(`${filePath}.metadata.json`);
+        return {
+            packageId: typeof value.packageId === 'string' ? value.packageId : null,
+            pid: Number.isInteger(value.pid) ? value.pid : null
+        };
+    } catch {
+        return {
+            packageId: null,
+            pid: null
+        };
+    }
+}
+
 async function loadJsonl(filePath, invalidLines, parseEvent) {
     const stream = createReadStream(filePath, {
         encoding: 'utf8'
@@ -260,6 +275,7 @@ function recordEndpoint(collector, endpoint, source, options) {
             classification: endpointClassification(endpoint),
             sources: [],
             descriptors: [],
+            socketInodes: [],
             states: [],
             observedPhases: [],
             directions: [],
@@ -281,6 +297,9 @@ function recordEndpoint(collector, endpoint, source, options) {
     }
     if (options.descriptor !== undefined && options.descriptor !== null && !record.descriptors.includes(options.descriptor)) {
         record.descriptors.push(options.descriptor);
+    }
+    if (options.socketInode !== undefined && options.socketInode !== null && !record.socketInodes.includes(options.socketInode)) {
+        record.socketInodes.push(options.socketInode);
     }
     if (options.state && !record.states.includes(options.state)) {
         record.states.push(options.state);
@@ -389,6 +408,12 @@ function normalizeFridaEndpoint(endpoint) {
 }
 
 function parseFridaEvent(value, filePath, lineNumber) {
+    if (value && typeof value === 'object' &&
+        value.message && typeof value.message === 'object' &&
+        value.message.type === 'send' &&
+        value.message.payload && typeof value.message.payload === 'object') {
+        value = value.message.payload;
+    }
     const timestamp = parseEpoch(value.timestamp);
     return {
         source: filePath,
@@ -399,6 +424,7 @@ function parseFridaEvent(value, filePath, lineNumber) {
         phase: inferPhase(filePath),
         endpoint: normalizeFridaEndpoint(value.endpoint),
         descriptor: Number.isInteger(value.descriptor) ? value.descriptor : null,
+        socketInode: Number.isInteger(value.socketInode) ? value.socketInode : null,
         direction: value.direction === 'outbound' || value.direction === 'inbound' ? value.direction : null,
         functionName: typeof value.function === 'string' ? value.function : null,
         hookName: typeof value.hook === 'string' ? value.hook : null,
@@ -442,16 +468,20 @@ function ownershipConsistent(ownership) {
     return ownership.every(entry => entry.processId === first.processId && entry.uid === first.uid && entry.package === first.package);
 }
 
-function processOwnershipMatches(record, processId, uid, packageId) {
-    return record.processOwnership.some(entry =>
-        entry.processId === processId &&
-        entry.uid === uid &&
-        entry.package === packageId
-    );
-}
-
 function socketDataIsProcessOwned(collector, event) {
-    return event.descriptor === null || collector.endpoints.size === 0 || [...collector.endpoints.values()]
+    if (collector.endpoints.size === 0) {
+        return true;
+    }
+    if (event.socketInode !== null) {
+        // Process-owned snapshots already attest package/PID/UID per connection.
+        // A socket-data event is process-owned when its socket inode matches a
+        // connection captured from the target process's own fd table.
+        return collector.socketConnections.some(connection => connection.inode === event.socketInode);
+    }
+    if (event.descriptor === null) {
+        return true;
+    }
+    return [...collector.endpoints.values()]
         .some(record => record.descriptors.includes(event.descriptor) && record.sources.includes('process-socket'));
 }
 
@@ -668,6 +698,7 @@ async function loadInputs(collector) {
                 timestamp: connection.capturedAt,
                 state: connection.state,
                 descriptor: connection.inode,
+                socketInode: connection.inode,
                 phase: 'unlabeled',
                 processOwnership: {
                     package: snapshot.package,
@@ -683,8 +714,14 @@ async function loadInputs(collector) {
             invalid: []
         };
         const stats = await stat(filePath);
+        const metadata = await loadFridaMetadata(filePath);
         const load = await loadJsonl(filePath, parser.invalid, (value, source, line) => {
             const event = parseFridaEvent(value, source, line);
+            event.processOwnership = {
+                package: metadata.packageId,
+                processId: metadata.pid,
+                uid: null
+            };
             collector.fridaEvents.push(event);
             if (event.type === 'hook-attached' || event.type === 'hook-missing') {
                 collector.fridaHookEvents.push(event);
@@ -693,6 +730,7 @@ async function loadInputs(collector) {
                 recordEndpoint(collector, event.endpoint, 'frida', {
                     timestamp: event.timestamp,
                     descriptor: event.descriptor,
+                    socketInode: event.socketInode,
                     state: null,
                     phase: event.phase,
                     direction: event.direction,
