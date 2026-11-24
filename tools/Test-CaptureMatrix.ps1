@@ -74,6 +74,16 @@ foreach ($round in @('a', 'b')) {
     $frida | ForEach-Object { $_ | ConvertTo-Json -Compress } | Set-Content -LiteralPath (Join-Path $fridaDirectory "login-$round.ndjson")
 }
 
+# An HTTP observation file carrying two 501 methodId records (mirroring the local
+# server's frame channel) plus one 401 poll, so the candidate-evidence and
+# evidence-gap sections have real input to exercise.
+$httpObservations = @(
+    [ordered]@{ recordedAtUnixMs = ([DateTimeOffset]'2026-11-24T10:00:05.000Z').ToUnixTimeMilliseconds(); channel = 'http'; source = 'GET /game/events?after=0&epoch=1 HTTP/1.1'; methodId = $null; command = $null; sequence = $null; bytes = 306; status = 401 },
+    [ordered]@{ recordedAtUnixMs = ([DateTimeOffset]'2026-11-24T10:00:06.000Z').ToUnixTimeMilliseconds(); channel = 'frame'; source = $null; methodId = 4375; command = $null; sequence = $null; bytes = 35; status = 501 },
+    [ordered]@{ recordedAtUnixMs = ([DateTimeOffset]'2026-11-24T10:00:07.000Z').ToUnixTimeMilliseconds(); channel = 'frame'; source = $null; methodId = 184355; command = $null; sequence = $null; bytes = 106; status = 501 }
+)
+$httpObservations | ConvertTo-Json -Depth 6 | Set-Content -LiteralPath (Join-Path $httpDirectory 'login-http-observations.json')
+
 node $matrixTool `
     --config $matrixConfig `
     --sockets $socketDirectory `
@@ -101,12 +111,36 @@ if ($battle.status -ne 'pending') {
     throw 'Battle phase must remain pending with no evidence'
 }
 
+if (-not $result.candidateEvidence -or $result.candidateEvidence.Count -eq 0) {
+    throw 'Candidate evidence table must be populated'
+}
+$methodCandidates = @($result.candidateEvidence | Where-Object { $_.kind -eq 'http-methodId' })
+if ($methodCandidates.Count -ne 2) {
+    throw "Expected two http-methodId candidates, got $($methodCandidates.Count)"
+}
+if (-not ($methodCandidates | Where-Object { $_.subject -eq 'methodId 4375' -and $_.status -eq 'observed-501' })) {
+    throw 'methodId 4375 must appear as an observed-501 candidate'
+}
+$non443 = @($result.candidateEvidence | Where-Object { $_.kind -eq 'endpoint' -and $_.subject -like '*8080*' })
+if ($non443.Count -lt 1) {
+    throw 'Non-443 endpoint must appear as a candidate'
+}
+if (-not $result.evidenceGaps -or $result.evidenceGaps.Count -eq 0) {
+    throw 'Evidence gaps must be populated'
+}
+if (-not ($result.evidenceGaps | Where-Object { $_ -match 'methodId' })) {
+    throw 'Evidence gaps must mention the unproven methodId observations'
+}
+
 $markdown = Get-Content -Raw -LiteralPath $outputMarkdown
 foreach ($requiredToken in @(
     'Dynamic capture matrix',
     'Phase status',
     'Round detail',
     'Evidence index',
+    'Candidate evidence',
+    'Evidence gaps',
+    'methodId 4375',
     'Blockers',
     'login'
 )) {

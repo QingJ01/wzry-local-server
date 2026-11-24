@@ -119,6 +119,27 @@ function inferPhase(filePath) {
     return 'unlabeled';
 }
 
+/*
+ * Normalize an endpoint address for display/dedup: collapse IPv4-mapped IPv6
+ * forms (`::ffff:a.b.c.d` and the hex `0:0:0:0:0:ffff:XXYY:ZZWW`) to dotted
+ * IPv4, and mark loopback. Returns { text, loopback }.
+ */
+function normalizeEndpointAddress(address) {
+    const text = String(address || '');
+    const mapped = /^::ffff:(\d+\.\d+\.\d+\.\d+)$/i.exec(text);
+    if (mapped) {
+        return { text: mapped[1], loopback: mapped[1] === '127.0.0.1' };
+    }
+    const hexMapped = /^0*:0*:0*:0*:0*:ffff:([0-9a-f]{1,4}):([0-9a-f]{1,4})$/i.exec(text);
+    if (hexMapped) {
+        const high = Number.parseInt(hexMapped[1], 16);
+        const low = Number.parseInt(hexMapped[2], 16);
+        const ipv4 = [(high >> 8) & 0xff, high & 0xff, (low >> 8) & 0xff, low & 0xff].join('.');
+        return { text: ipv4, loopback: ipv4 === '127.0.0.1' };
+    }
+    return { text, loopback: text === '127.0.0.1' || text === '::1' };
+}
+
 function parseEpoch(value) {
     if (typeof value === 'number' && Number.isFinite(value)) {
         return value > 1e12 ? value : value * 1000;
@@ -190,6 +211,8 @@ function analyzeFridaFile(filePath) {
         networkConnects: 0,
         non443Connects: 0,
         endpoints: new Set(),
+        non443Endpoints: new Set(),
+        dataEndpoints: new Set(),
         inodes: new Set(),
         descriptors: new Set(),
         firstTimestamp: null,
@@ -216,7 +239,8 @@ function analyzeFridaFile(filePath) {
         }
         const endpoint = value.endpoint && typeof value.endpoint === 'object' ? value.endpoint : null;
         if (endpoint && endpoint.address && Number.isInteger(endpoint.port)) {
-            file.endpoints.add(`${endpoint.address}:${endpoint.port}`);
+            const normalized = normalizeEndpointAddress(endpoint.address);
+            file.endpoints.add(`${normalized.text}:${endpoint.port}`);
         }
         switch (value.type) {
             case 'session-started':
@@ -235,14 +259,21 @@ function analyzeFridaFile(filePath) {
                 file.connectEvents += 1;
                 if (value.network === true) {
                     file.networkConnects += 1;
-                    if (endpoint && Number.isInteger(endpoint.port) && endpoint.port !== 443) {
+                    const normalized = endpoint && endpoint.address ? normalizeEndpointAddress(endpoint.address) : null;
+                    if (endpoint && Number.isInteger(endpoint.port) && endpoint.port !== 443 && endpoint.port !== 80 &&
+                        normalized && !normalized.loopback) {
                         file.non443Connects += 1;
+                        file.non443Endpoints.add(`${normalized.text}:${endpoint.port}`);
                     }
                 }
                 break;
             case 'socket-data':
                 file.socketDataEvents += 1;
                 file.hasSocketData = true;
+                if (endpoint && endpoint.address) {
+                    const normalized = normalizeEndpointAddress(endpoint.address);
+                    file.dataEndpoints.add(`${normalized.text}:${endpoint.port}`);
+                }
                 if (value.direction === 'outbound') {
                     file.outboundEvents += 1;
                 } else if (value.direction === 'inbound') {
@@ -256,6 +287,8 @@ function analyzeFridaFile(filePath) {
         file.events = counts.events;
         file.invalidLines = counts.invalid;
         file.endpoints = [...file.endpoints].sort();
+        file.non443Endpoints = [...file.non443Endpoints].sort();
+        file.dataEndpoints = [...file.dataEndpoints].sort();
         file.inodes = [...file.inodes].sort((a, b) => a - b);
         file.descriptors = [...file.descriptors].sort((a, b) => a - b);
         return file;
@@ -319,13 +352,20 @@ function analyzeHttpObservation(filePath) {
         return null;
     }
     if (!Array.isArray(value)) {
-        return null;
+        // Tolerate both a bare observation array and the export wrapper
+        // `{ "observations": [...] }` produced by the local server exporter.
+        if (value && typeof value === 'object' && Array.isArray(value.observations)) {
+            value = value.observations;
+        } else {
+            return null;
+        }
     }
     const file = {
         source: path.relative(projectRoot, filePath),
         phase: inferPhase(filePath),
         records: value.length,
         statusCounts: {},
+        methodIds: new Map(),
         firstUnixMs: null,
         lastUnixMs: null
     };
@@ -333,6 +373,15 @@ function analyzeHttpObservation(filePath) {
         if (record && typeof record === 'object') {
             const status = String(record.status ?? 'unknown');
             file.statusCounts[status] = (file.statusCounts[status] ?? 0) + 1;
+            if (Number.isInteger(record.methodId)) {
+                const bucket = file.methodIds.get(record.methodId) ?? { count: 0, statuses: new Set(), bytes: new Set() };
+                bucket.count += 1;
+                bucket.statuses.add(record.status ?? 'unknown');
+                if (Number.isFinite(record.bytes)) {
+                    bucket.bytes.add(record.bytes);
+                }
+                file.methodIds.set(record.methodId, bucket);
+            }
             const ts = parseEpoch(record.recordedAtUnixMs);
             if (ts !== null) {
                 if (file.firstUnixMs === null || ts < file.firstUnixMs) {
@@ -345,6 +394,102 @@ function analyzeHttpObservation(filePath) {
         }
     }
     return file;
+}
+
+/*
+ * Candidate evidence rows summarize the strongest protocol-adjacent signals in the
+ * evidence set without asserting recovery: non-443 endpoints, endpoints that carry
+ * real socket bytes, and HTTP methodId observations from the local server's 501
+ * frame channel. Each row reports which evidence classes are still missing.
+ */
+function buildCandidateEvidence(fridaFiles, socketFiles, httpFiles) {
+    const candidates = [];
+
+    const endpointStats = new Map();
+    for (const file of fridaFiles) {
+        // Only non-443 network connects become endpoint candidates; data-byte
+        // presence is decided per endpoint via dataEndpoints, not file totals.
+        for (const endpoint of file.non443Endpoints) {
+            const entry = endpointStats.get(endpoint) ?? {
+                endpoint,
+                phases: new Set(),
+                files: 0,
+                hasData: false
+            };
+            entry.phases.add(file.phase);
+            entry.files += 1;
+            if (file.dataEndpoints.includes(endpoint)) {
+                entry.hasData = true;
+            }
+            endpointStats.set(endpoint, entry);
+        }
+    }
+    for (const entry of endpointStats.values()) {
+        const missing = [];
+        if (!entry.hasData) {
+            missing.push('socket bytes on this endpoint');
+        }
+        missing.push('process-owned inode match', 'repeat across sessions');
+        candidates.push({
+            kind: 'endpoint',
+            subject: entry.endpoint,
+            phases: [...entry.phases].sort().join(', '),
+            strength: `connect observed${entry.hasData ? ' + data bytes' : ''}`,
+            missing: missing.filter(Boolean).join('; '),
+            status: 'candidate'
+        });
+    }
+
+    for (const file of httpFiles) {
+        for (const [methodId, bucket] of file.methodIds) {
+            candidates.push({
+                kind: 'http-methodId',
+                subject: `methodId ${methodId}`,
+                phases: file.phase,
+                strength: `${bucket.count} obs, status ${[...bucket.statuses].sort().join('/')}, bytes ${[...bucket.bytes].sort((a, b) => a - b).join('/')}`,
+                missing: 'request path/body; wire command mapping; client-side origin',
+                status: 'observed-501'
+            });
+        }
+    }
+
+    return candidates.sort((left, right) => left.subject.localeCompare(right.subject));
+}
+
+function buildEvidenceGaps(phases, fridaFiles, socketFiles, httpFiles) {
+    const gaps = [];
+    const totalSocketData = fridaFiles.reduce((sum, f) => sum + f.socketDataEvents, 0);
+    const non443Endpoints = new Set();
+    for (const file of fridaFiles) {
+        for (const endpoint of file.non443Endpoints) {
+            non443Endpoints.add(endpoint);
+        }
+    }
+    const methodIds = new Set();
+    for (const file of httpFiles) {
+        for (const methodId of file.methodIds.keys()) {
+            methodIds.add(methodId);
+        }
+    }
+
+    if (!socketFiles.some(s => s.ownedConnectionCount > 0 && s.phase !== 'unlabeled')) {
+        gaps.push('No phase-tagged process-owned socket snapshot; endpoint ownership cannot be tied to a UI phase.');
+    }
+    const silentNon443 = [...non443Endpoints].filter(e => fridaFiles.every(f => !f.dataEndpoints.includes(e)));
+    if (non443Endpoints.size === 0) {
+        gaps.push('No non-443 endpoint observed at all; game gateway location is unknown.');
+    } else if (silentNon443.length > 0) {
+        gaps.push(`Non-443 endpoint(s) ${silentNon443.join(', ')} observed only at connect level; no socket bytes recorded on them.`);
+    }
+    if (methodIds.size > 0) {
+        gaps.push(`HTTP 501 methodId(s) ${[...methodIds].sort((a, b) => a - b).join(', ')} recorded by the local server; their wire encoding, request path, and client origin are unproven.`);
+    }
+    if (phases.every(p => p.completedRounds === 0)) {
+        gaps.push('No phase completed a single gate round; phase-correlated capture is still the primary gap.');
+    }
+    gaps.push('No runtime backtrace ties any socket call to a managed connector or pack-buffer export.');
+    gaps.push('No response-before-state-change sequence recorded for account, shop, or battle flows.');
+    return gaps;
 }
 
 /*
@@ -513,6 +658,26 @@ function renderMarkdown(result) {
         lines.push(`| ${entry.kind} | ${entry.source} | ${entry.phase} | ${entry.count} | ${entry.notes} |`);
     }
     lines.push('');
+    lines.push('## Candidate evidence');
+    lines.push('');
+    lines.push('Candidate rows index the strongest protocol-adjacent signals observed so far. They are correlation targets, not proven fields; a `candidate` or `observed-501` status asserts observation only.');
+    lines.push('');
+    if (result.candidateEvidence.length === 0) {
+        lines.push('- No candidate endpoints or methodId observations recorded yet.');
+    } else {
+        lines.push('| Kind | Subject | Phase | Strength | Missing | Status |');
+        lines.push('| --- | --- | --- | --- | --- | --- |');
+        for (const candidate of result.candidateEvidence) {
+            lines.push(`| ${candidate.kind} | ${candidate.subject} | ${candidate.phases} | ${candidate.strength} | ${candidate.missing} | ${candidate.status} |`);
+        }
+    }
+    lines.push('');
+    lines.push('## Evidence gaps');
+    lines.push('');
+    for (const gap of result.evidenceGaps) {
+        lines.push(`- ${gap}`);
+    }
+    lines.push('');
     lines.push('## Blockers');
     lines.push('');
     for (const blocker of result.blockers) {
@@ -578,14 +743,20 @@ async function main() {
         const status = Object.entries(file.statusCounts)
             .map(([k, v]) => `${k}:${v}`)
             .join(',');
+        const methodIds = [...file.methodIds.keys()].sort((a, b) => a - b);
         evidenceIndex.push({
             kind: 'http',
             source: file.source,
             phase: file.phase,
             count: file.records,
-            notes: status || 'no records'
+            notes: methodIds.length > 0
+                ? `${status}; methodId ${methodIds.join(',')}`
+                : (status || 'no records')
         });
     }
+
+    const candidateEvidence = buildCandidateEvidence(fridaFiles, socketFiles, httpFiles);
+    const evidenceGaps = buildEvidenceGaps(phases, fridaFiles, socketFiles, httpFiles);
 
     const blockers = [];
     const incomplete = phases.filter(p => p.status !== 'complete');
@@ -626,6 +797,8 @@ async function main() {
         },
         phases,
         evidenceIndex,
+        candidateEvidence,
+        evidenceGaps,
         blockers
     };
 
