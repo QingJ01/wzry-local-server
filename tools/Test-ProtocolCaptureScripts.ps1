@@ -14,11 +14,35 @@ function Assert-True {
 
 $socketScript = Join-Path $ProjectRoot 'tools\Observe-ProcessSockets.ps1'
 $fridaScript = Join-Path $ProjectRoot 'tools\frida\wzry-network.js'
+$il2cppAnalyzer = Join-Path $ProjectRoot 'tools\analyze_il2cpp.mjs'
 $planPath = Join-Path $ProjectRoot 'reports\protocol_capture_plan.md'
 $runbookPath = Join-Path $ProjectRoot 'reports\dynamic_capture_runbook.md'
 
-foreach ($path in @($socketScript, $fridaScript, $planPath, $runbookPath)) {
+foreach ($path in @($socketScript, $fridaScript, $il2cppAnalyzer, $planPath, $runbookPath)) {
     Assert-True (Test-Path -LiteralPath $path -PathType Leaf) "Required file missing: $path"
+}
+
+node --check $il2cppAnalyzer
+if ($LASTEXITCODE -ne 0) {
+    throw 'IL2CPP analyzer failed JavaScript syntax validation'
+}
+$il2cppAnalyzerContent = Get-Content -Raw -LiteralPath $il2cppAnalyzer
+foreach ($requiredToken in @(
+    'METADATA_VERSION = 23',
+    '["methods", 0x30, 56]',
+    '["parameters", 0x58, 16]',
+    '["fields", 0x60, 16]',
+    '["typeDefinitions", 0xa0, 104]',
+    '["images", 0xb0, 24]',
+    '["assemblies", 0xb8, 32]',
+    'Assets.Scripts.Framework.FrameSynchr',
+    'Assets.Scripts.Framework.FrameWindow',
+    'Assets.Scripts.Framework.LobbyConnector',
+    'ApolloHelper',
+    'CLoginSystem2',
+    'Assets.Scripts.GameSystem.CShopSystem'
+)) {
+    Assert-True ($il2cppAnalyzerContent.Contains($requiredToken)) "IL2CPP analyzer must implement $requiredToken"
 }
 
 $parserErrors = @()
@@ -37,8 +61,65 @@ foreach ($requiredToken in @(
 }
 
 $fridaContent = Get-Content -Raw -LiteralPath $fridaScript
-foreach ($requiredToken in @('Module.findExportByName', "'connect'", "'send'", "'recv'", 'maximumPreviewBytes', 'JSON.stringify(event)')) {
+node --check $fridaScript
+if ($LASTEXITCODE -ne 0) {
+    throw 'Frida template failed JavaScript syntax validation'
+}
+
+foreach ($requiredToken in @(
+    'Module.findExportByName',
+    "'socket'",
+    "'connect'",
+    "'send'",
+    "'sendto'",
+    "'recv'",
+    "'recvfrom'",
+    "'write'",
+    "'writev'",
+    'Socket.peerAddress',
+    'maximumPreviewBytes',
+    'JSON.stringify(event)',
+    'previewHex',
+    'previewTruncated',
+    'requestedLength',
+    'actualLength',
+    "'outbound'",
+    "'inbound'",
+    "outputFormat: 'jsonl'"
+)) {
     Assert-True ($fridaContent.Contains($requiredToken)) "Frida template must implement $requiredToken"
+}
+
+$protocolCallChainPath = Join-Path $ProjectRoot 'reports\protocol_call_chain.md'
+Assert-True (Test-Path -LiteralPath $protocolCallChainPath -PathType Leaf) "Protocol call-chain report missing: $protocolCallChainPath"
+$protocolCallChain = Get-Content -Raw -LiteralPath $protocolCallChainPath
+foreach ($requiredHeading in @(
+    '## Candidate call chains',
+    '## Static hook candidates',
+    '## Metadata call-chain and dispatch anchors',
+    '## Semantic message anchors',
+    '## Static-to-dynamic route',
+    '## Capture standards',
+    '## Current blockers'
+)) {
+    Assert-True ($protocolCallChain.Contains($requiredHeading)) "Protocol call-chain report must contain $requiredHeading"
+}
+
+foreach ($requiredToken in @(
+    'libGameCore.so',
+    'libil2cpp.so',
+    'libgcloudcore.so',
+    'global-metadata.dat',
+    '0x1DBF758',
+    '0x77F42C0',
+    '0x5B668',
+    'SCPKG_CMD_GAMELOGINRSP',
+    'SCPKG_MULTGAME_BEGINFIGHT',
+    'SCPKG_CMD_SHOPBUY',
+    'commandId',
+    'PID + UID + fd -> socket inode'
+)) {
+    Assert-True ($protocolCallChain.Contains($requiredToken)) "Protocol call-chain report must contain evidence token: $requiredToken"
 }
 
 $planContent = Get-Content -Raw -LiteralPath $planPath
