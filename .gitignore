@@ -1,0 +1,29 @@
+# Game assets and build outputs are intentionally not committed.
+*.zip
+*.apk
+*.ap_
+*.idsig
+*.jks
+*.keystore
+*.p12
+*.db
+*.sqlite
+*.bytes
+
+# Local tooling and generated outputs
+work/
+zip_inventory.txt
+node_modules/
+dist/
+build/
+coverage/
+.env
+.env.*
+
+# OS and editor noise
+.DS_Store
+Thumbs.db
+*.log
+*.tmp
+*.swp
+*.bak
