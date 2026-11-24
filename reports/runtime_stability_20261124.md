@@ -115,3 +115,37 @@ Each step is independently reversible; run in order, cold-start `sgame` after ea
 - `tools/frida/wzry-kill-trace.js` + `run-kill-trace.mjs` (untracked) — pre-built hook for E3.
 - `/data/adb/modules/{Yurikey,Violet,hma_oss_zygisk,zygisk_lsposed,zygisksu}` — all inspected read-only.
 - HMA scope for `sgame` confirmed (`useWhitelist` + `白名单`).
+
+---
+
+# E1 experiment — frida-server removed — 2026-11-24 ~20:12–20:18
+
+## Procedure
+
+1. `adb shell su -c "kill 18358"` → `pgrep frida` empty, port `127.0.0.1:27042` gone. ADB reverse (`tcp:19620/19621/19622`) and host Rust service untouched (`Test-NetConnection 127.0.0.1:19620 = True`).
+2. Cold-start `com.tencent.tmgp.sgame/.SGameActivity` (LaunchState=COLD, ~880 ms) and polled the game PID.
+3. No persistent change made; only the running frida-server process was killed. **Note**: frida-server is a manual PPid=1 daemon with no module/service.sh relauncher found — it stays dead until something/someone restarts it (it did come back as a new PID mid-experiment, after run 1 had already died).
+
+## Result — frida is NOT the trigger
+
+- **Run 1 (PID 24399)**: launched 20:12:32, frida fully absent. Self-SIGKILL at `20:13:36.950` → `houdini [24433] [SIGKILL] kill: pid=24399 tid=24433`. Lived **~64 s** (≈58 s by polling). `xg_vip_service` child (pid 24428) self-SIGKILLed ~1 s earlier at `20:13:35.955`. No `Force stopping`/`am kill` line — same in-process Houdini SIGKILL as before.
+- **Run 2 (PID 20343)**: launched clean-cold ~20:16:3x with frida absent. Self-SIGKILL at `20:17:33.725` → `houdini [20610] [SIGKILL] kill: pid=20343`. Lived **~60 s**. Identical signature, identical ~60 s window.
+- Bonus datapoint: `xg_vip_service` always dies ~1 s before the main process — the checker kills the whole process group, not just the UI thread.
+
+## Interpretation
+
+- The **~60 s foreground self-SIGKILL does not depend on the frida-server process or port 27042**. The trigger is the emulator/root environment itself (vbox/qemu props, native-bridge, `su`, zygisk injection) — or a fixed timer in the app's integrity worker — not the presence of the frida daemon.
+- Timing is now consistent: prior runs died at ~21 s and ~62 s; both E1 runs died at ~60–64 s. The ~60 s cases dominate → this is a **delayed post-launch integrity verdict on a timer**, not tied to the frida port.
+- `AccServiceManager`/`AccInterceptManager` still only log `onAppClose`/`hasAccSuccess=false` after each death — confirmed passive.
+
+## Next (E2 — denylist, per plan)
+
+Proposed commands (rollback in parentheses), requires a game relaunch or reboot to take effect:
+
+```
+adb shell magisk --denylist add com.tencent.tmgp.sgame    # (revert: magisk --denylist rm com.tencent.tmgp.sgame)
+adb reboot                                               # or am force-stop + relaunch; denylist needs zygote re-fork
+adb shell am start -W -n com.tencent.tmgp.sgame/.SGameActivity
+```
+
+If `magisk --denylist` is unavailable on this Magisk build, the equivalent is editing the ZygiskSu denylist `/data/adb/zygisksu/` policy for `sgame`. Will report exact commands before executing E2.
