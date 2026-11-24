@@ -1,67 +1,88 @@
 # Protocol capture findings
 
-## Current evidence
+Generated: 2026-11-24T11:27:43.220Z
 
-As of the 2026-11-24 15:42 CST snapshot:
+This report merges process-owned socket observations and Frida socket events. It records endpoint, direction, and length evidence only. It does not infer frame headers, command IDs, encryption, compression, or schemas from static names or byte previews.
 
-- The target process `com.tencent.tmgp.sgame` was alive as PID `53389`, but the foreground window was the unrelated `com.tencent.xfight` privacy-policy activity.
-- The only available socket evidence was a non-root global table: established HTTPS connections existed, but no `/proc/<pid>/fd` inode mapping proved they belonged to the game.
-- No Frida JSONL file was produced, so no hook attach, connect, direction, or byte length evidence exists.
-- No process-owned endpoint, gateway, frame boundary, message ID, encryption boundary, account flow, battle flow, or shop flow is proven.
+## Evidence status
 
-The normalized quality result is stored locally in `workspace/analysis/protocol-capture/correlation-current.json`; raw captures remain under `workspace/observations/`.
+- Process-socket snapshots: **3**
+- Process-owned connections: **2**
+- Frida files: **8**
+- Frida events: **97**
+- Outbound socket events: **3**
+- Inbound socket events: **0**
+- Attached socket hooks: **52**
+- Missing socket hooks: **0**
+- Unowned socket-data events: **3**
+- Evidence completeness: **insufficient-for-protocol-recovery**
 
-Do not upgrade the global HTTPS endpoints or the process liveness observation into protocol evidence. The next valid capture must keep the target UI in the foreground and capture root-readable fd/inode ownership, or produce a complete Frida session log.
+Raw byte previews are not copied into this report. They remain only in local capture files.
 
-- `workspace/observations/` contains no real process-socket or Frida capture set at the time of this report.
-- The only existing observation is `workspace/observations/sample-proc-net.txt`, a small fixture used by `tools/Test-ObserveScripts.ps1`; it is not game traffic.
-- No gateway, frame header, message ID, encryption, compression, account, battle, or shop schema is recovered.
+## Endpoint evidence
 
-## Correlation tool
+The `game-candidate` label means only that the endpoint is non-HTTP and process/socket or Frida evidence observed it. It is not a proven game gateway.
 
-Use `tools/correlate_protocol_capture.mjs` to merge future captures without guessing protocol semantics:
+| Endpoint | Sources | Classification | Confidence | Out / In | Actual length range | Phase |
+| --- | --- | --- | --- | ---: | --- | --- |
+| 00000000:00000000:FFFF0000:57F2C971:443 | process-socket | http-control-plane | low | 0 / 0 | n/a | unlabeled |
+| 00000000:00000000:FFFF0000:EB29C871:443 | process-socket | http-control-plane | low | 0 / 0 | n/a | unlabeled |
 
-```powershell
-node .\tools\correlate_protocol_capture.mjs `
-  --sockets .\workspace\observations\process-sockets `
-  --frida .\workspace\observations\frida `
-  --output .\workspace\analysis\protocol-capture\correlation.json `
-  --markdown .\reports\protocol_capture_findings.md
-```
+## Protocol findings
 
-The tool emits:
+| Finding | Status | Evidence restriction |
+| --- | --- | --- |
+| Gateway endpoint | not proven | A non-HTTP endpoint is only a candidate; repeated process-owned observations or a runtime connect backtrace is required. |
+| Frame boundary | not recovered | Only observed socket read/write lengths are recorded; no header interpretation is permitted without managed pack/unpack evidence. |
+| Direction evidence | partial | Directions come only from hooked socket calls and are not semantic request/response labels. |
+| Length evidence | partial | Lengths are syscall results and may contain partial frames, coalesced frames, or non-protocol bytes. |
+| Command ID | not recovered | The static commandId field is not mapped to bytes or numeric values. |
+| Encryption / compression | not recovered | No pre-cipher and post-cipher buffers, compression boundary, or repeated call-chain evidence is present. |
 
-- Input file identity, size, and SHA-256.
-- Process-owned endpoint evidence from `Observe-ProcessSockets.ps1`.
-- Frida endpoint, direction, socket function, and syscall length evidence from `wzry-network.js`.
-- Endpoint classifications: local server, HTTP control plane, or **game candidate only**.
-- Per-flow evidence gates for account, battle, and shop.
-- Explicit `not proven` / `not recovered` findings for gateway, frame, command ID, and encryption.
+## Flow gates
 
-The tool also reports evidence quality:
+| Flow | Status | Bidirectional | Process-owned | Repeated socket evidence |
+| --- | --- | --- | --- | --- |
+| account | insufficient | false | true | true |
+| battle | insufficient | false | true | true |
+| shop | insufficient | false | true | true |
 
-- Whether Frida hook attach events and missing-export events were recorded.
-- How many socket-data events have matching process fd/inode ownership.
-- How many supplied socket JSON files are not valid socket snapshots and are therefore skipped.
+A `needs-semantic-confirmation` gate still cannot pass: every flow requires consistent command grouping and a response-before-state-change sequence. No flow is complete in this report unless those conditions and the runbook gates are explicitly added.
 
-The tool intentionally does **not** parse bytes, derive frame boundaries, map semantic names to numeric IDs, or infer encryption. Those claims require runtime call-stack and buffer-boundary evidence.
+## Static anchor correlation
 
-## Static anchors
+Static anchors are listed as correlation targets. Correlation requires runtime call stacks, matching phases, and socket events; it is not established merely because a capture exists.
 
-The correlation targets are maintained in `tools/config/protocol_anchor_catalog.json`. They include:
+| Flow / role | Anchor | Static confidence | Dynamic correlation |
+| --- | --- | --- | --- |
+| account | SCPKG_CMD_GAMELOGINRSP | high | not correlated |
+| battle | SCPKG_MATCH_RSP | high | not correlated |
+| battle | SCPKG_MULTGAME_BEGINFIGHT | high | not correlated |
+| shop | SCPKG_CMD_SHOPDETAIL | high | not correlated |
+| shop | SCPKG_CMD_SHOPBUY | high | not correlated |
+| libGameCore.so import: endpoint | connect | high | not correlated |
+| libGameCore.so import: outbound | send | high | not correlated |
+| libGameCore.so import: inbound | recv | high | not correlated |
+| libGameCore.so export: managed-pack-buffer | PushCsBuffer | medium | not correlated |
+| libGameCore.so export: native-pack-buffer | PopFifoCppPackBuffer | medium | not correlated |
+| libil2cpp.so metadata: connector | LobbyConnector | medium | not correlated |
+| libil2cpp.so metadata: dispatch-field | commandId | high | not correlated |
 
-- `libGameCore.so` socket imports and C#/C++ pack-buffer exports.
-- IL2CPP connector and `commandId` semantic anchors.
-- Account, battle, and shop `SCPKG_*` names.
+## Data quality
 
-These are high- or medium-confidence static anchors, but none is dynamically correlated until a capture contains the matching phase, socket event, and call stack.
+- 2 supplied socket JSON file(s) were skipped because they were not valid socket snapshots.
+- At least one socket direction is missing; bidirectional framing cannot be evaluated.
+- At least one Frida file has no recognized UI phase in its filename.
+- Capture parsing encountered 1 invalid JSONL line(s).
+- 3 Frida socket-data event(s) lack matching process-owned fd/inode evidence.
+- Invalid Frida JSONL lines: **1**.
+- Invalid socket snapshot skipped: workspace\observations\process-sockets\00-cold-start-lifecycle.json: Expected a JSON object in workspace\observations\process-sockets\00-cold-start-lifecycle.json
+- Invalid socket snapshot skipped: workspace\observations\process-sockets\current-manifest-20261124-154213.json: Socket snapshot workspace\observations\process-sockets\current-manifest-20261124-154213.json has no connections array
 
-## Evidence gates
+## Current blockers
 
-Every flow remains blocked until the corresponding runbook gate is satisfied:
-
-- **Account**: repeated process-owned endpoint evidence, request/response timing, stable framing, command grouping, and response-before-state-change.
-- **Battle**: endpoint continuity across room/loading/battle, bidirectional rates, stable framing under fragmentation, distinct frame/input/settlement evidence, and reproducibility.
-- **Shop**: distinct open/list/purchase actions, response before UI or state mutation, and balance/inventory confirmation.
-
-See `reports/dynamic_capture_runbook.md` and `reports/protocol_call_chain.md` for the full capture and confidence rules.
+- No numeric message-ID registry is proven.
+- No complete frame header, length layout, sequence layout, or command encoding is proven.
+- No pre/post encryption or compression boundary is proven.
+- No runtime backtrace connects a socket call to a managed connector, pack-buffer export, or semantic message handler.
+- No account, battle, or shop response-before-state-change sequence is proven.

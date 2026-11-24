@@ -114,7 +114,7 @@ async function pipelineFile(filePath, consume) {
 }
 
 async function loadJsonObject(filePath) {
-    const value = JSON.parse((await readFile(filePath)).toString('utf8'));
+    const value = JSON.parse((await readFile(filePath)).toString('utf8').replace(/^\uFEFF/, ''));
     if (!value || typeof value !== 'object' || Array.isArray(value)) {
         throw new Error(`Expected a JSON object in ${filePath}`);
     }
@@ -558,7 +558,7 @@ function renderMarkdown(result) {
     lines.push('');
     lines.push(`- Process-socket snapshots: **${result.input.processSocketSnapshots}**`);
     lines.push(`- Process-owned connections: **${result.input.processOwnedConnections}**`);
-    lines.push(`- Frida files: **${result.input.fridaFiles}**`);
+    lines.push(`- Frida files: **${result.input.fridaFileCount}**`);
     lines.push(`- Frida events: **${result.input.fridaEvents}**`);
     lines.push(`- Outbound socket events: **${result.input.fridaOutboundEvents}**`);
     lines.push(`- Inbound socket events: **${result.input.fridaInboundEvents}**`);
@@ -640,7 +640,7 @@ function renderMarkdown(result) {
 
 async function loadInputs(collector) {
     const socketFileGroups = await Promise.all(command.sockets.map(directory => listFiles(directory, ['.json'])));
-    const fridaFileGroups = await Promise.all(command.frida.map(directory => listFiles(directory, ['.jsonl'])));
+    const fridaFileGroups = await Promise.all(command.frida.map(directory => listFiles(directory, ['.jsonl', '.ndjson'])));
     const socketFiles = socketFileGroups.flat();
     const fridaFiles = fridaFileGroups.flat();
 
@@ -778,7 +778,7 @@ async function main() {
         input: {
             processSocketSnapshots: collector.socketSnapshots.length,
             processOwnedConnections,
-            fridaFiles: collector.fridaFiles.length,
+            fridaFileCount: collector.fridaFiles.length,
             fridaEvents: collector.fridaEvents.length,
             fridaOutboundEvents: outboundEvents,
             fridaInboundEvents: inboundEvents,

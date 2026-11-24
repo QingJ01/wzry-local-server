@@ -58,6 +58,15 @@ $socketSnapshot = [ordered]@{
     )
 }
 $socketSnapshot | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath (Join-Path $socketDirectory 'login-20261124.json')
+$bomSocketDirectory = Join-Path $fixtureRoot 'bom-sockets'
+New-Item -ItemType Directory -Force -Path $bomSocketDirectory | Out-Null
+Copy-Item -LiteralPath (Join-Path $socketDirectory 'login-20261124.json') -Destination (Join-Path $bomSocketDirectory 'login-bom-20261124.json')
+$bomPath = Join-Path $bomSocketDirectory 'login-bom-20261124.json'
+[IO.File]::WriteAllText(
+    $bomPath,
+    [IO.File]::ReadAllText($bomPath),
+    [System.Text.UTF8Encoding]::new($true)
+)
 
 $events = @(
     [ordered]@{
@@ -119,7 +128,7 @@ New-Item -ItemType Directory -Force -Path $unrelatedDirectory | Out-Null
 @{ notASnapshot = $true } | ConvertTo-Json | Set-Content -LiteralPath (Join-Path $unrelatedDirectory 'lifecycle.json')
 
 node $analyzer `
-    --sockets $socketDirectory `
+    --sockets "$socketDirectory;$bomSocketDirectory" `
     --frida $fridaDirectory `
     --output $outputJson `
     --markdown $outputMarkdown
@@ -131,8 +140,8 @@ $result = Get-Content -Raw -LiteralPath $outputJson | ConvertFrom-Json
 if ($result.schemaVersion -ne 1) {
     throw 'Correlation result schema version must be 1'
 }
-if ($result.input.processSocketSnapshots -ne 1) {
-    throw 'Fixture must produce one process-socket snapshot'
+if ($result.input.processSocketSnapshots -ne 2) {
+    throw 'Fixture must produce two process-socket snapshots'
 }
 if ($result.input.fridaEvents -ne 5) {
     throw 'Fixture must parse five valid Frida events'
