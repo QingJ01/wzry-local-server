@@ -241,7 +241,7 @@ function parseMetadata(buffer) {
       parameterStart: buffer.readInt32LE(base + 12),
       genericContainerIndex: buffer.readInt32LE(base + 40),
       token: buffer.readUInt32LE(base + 44),
-      parameterCount: buffer.readUInt16LE(base + 28),
+      parameterCount: buffer.readUInt16LE(base + 54),
     });
   }
 
@@ -401,6 +401,7 @@ function parseElf(buffer) {
 
   const dynamicSymbols = [];
   const undefinedImports = [];
+  let undefinedSymbolCount = 0;
   const dynamicSection = sections.find((section) => section.name === ".dynsym");
   if (dynamicSection) {
     const dynamicStrings = sections.find((section) => section.name === ".dynstr");
@@ -419,8 +420,15 @@ function parseElf(buffer) {
         sectionIndex: buffer.readUInt16LE(base + 6),
       };
       dynamicSymbols.push(symbol);
-      if (symbol.sectionIndex === 0 && symbol.name) {
+      if (
+        symbol.sectionIndex === 0 &&
+        symbol.name &&
+        symbol.index !== 0
+      ) {
         undefinedImports.push(symbol.name);
+      }
+      if (symbol.sectionIndex === 0) {
+        undefinedSymbolCount += 1;
       }
     }
   }
@@ -457,8 +465,8 @@ function parseElf(buffer) {
     sections,
     buildId,
     dynamicSymbolCount: dynamicSymbols.length,
-    definedSymbolCount: dynamicSymbols.length - undefinedImports.length,
-    undefinedImportCount: undefinedImports.length,
+    definedSymbolCount: dynamicSymbols.length - undefinedSymbolCount,
+    undefinedImportCount: undefinedSymbolCount,
     dynamicSymbols,
     undefinedImports,
   };
@@ -651,7 +659,7 @@ function main() {
       imports: {
         connect: elf.undefinedImports.includes("connect"),
         send: elf.undefinedImports.includes("send"),
-        recv: elf.undefinedImports.includes("recv"),
+        recv: elf.undefinedImports.includes("recv") || elf.undefinedImports.includes("recvfrom"),
       },
       protection: {
         hasCodeRegistrationSymbol: symbolNames.has("g_CodeRegistration"),
