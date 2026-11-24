@@ -1,0 +1,15 @@
+[package]
+name = "wzry_houdini_selfkill_hook"
+version = "1.0.0"
+edition = "2021"
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+libc = "0.2"
+
+[profile.release]
+panic = "abort"
+opt-level = 3
+lto = true

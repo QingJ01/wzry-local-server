@@ -1,0 +1,10 @@
+[target.x86_64-linux-android]
+linker = "rust-lld"
+rustflags = [
+    "-C", "link-arg=-nostdlib",
+    "-C", "link-arg=-L./sysroot",
+    "-C", "link-arg=-lc",
+    "-C", "link-arg=-ldl",
+    "-C", "link-arg=-llog",
+    "-C", "link-arg=--defsym=rust_eh_personality=0",
+]
