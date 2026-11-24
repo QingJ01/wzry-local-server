@@ -1,0 +1,479 @@
+{
+  "input": "D:\\project\\wzry\\workspace\\analysis\\extracted\\lib\\arm64-v8a\\libGameCore.so",
+  "size": 58805320,
+  "sha256": "58e36f26973c05b2998f50c206a992176d33afb271f2d4289f2d49d0883708e5",
+  "elf": {
+    "class": "ELF64",
+    "endian": "little",
+    "machine": 183,
+    "type": 3,
+    "entryPoint": 12532896,
+    "sectionHeaderTableOffset": 58803912,
+    "sectionTableAvailable": true,
+    "programHeaders": [
+      {
+        "index": 0,
+        "type": 1,
+        "flags": 5,
+        "offset": 0,
+        "virtualAddress": 0,
+        "physicalAddress": 0,
+        "fileSize": 52495184,
+        "memorySize": 52495184,
+        "alignment": 65536
+      },
+      {
+        "index": 1,
+        "type": 1,
+        "flags": 6,
+        "offset": 52495184,
+        "virtualAddress": 52560720,
+        "physicalAddress": 52560720,
+        "fileSize": 6281608,
+        "memorySize": 8030680,
+        "alignment": 65536
+      },
+      {
+        "index": 2,
+        "type": 2,
+        "flags": 6,
+        "offset": 56810320,
+        "virtualAddress": 56875856,
+        "physicalAddress": 56875856,
+        "fileSize": 432,
+        "memorySize": 432,
+        "alignment": 8
+      },
+      {
+        "index": 3,
+        "type": 4,
+        "flags": 4,
+        "offset": 12525224,
+        "virtualAddress": 12525224,
+        "physicalAddress": 12525224,
+        "fileSize": 36,
+        "memorySize": 36,
+        "alignment": 4
+      },
+      {
+        "index": 4,
+        "type": 1685382480,
+        "flags": 4,
+        "offset": 37859496,
+        "virtualAddress": 37859496,
+        "physicalAddress": 37859496,
+        "fileSize": 2364244,
+        "memorySize": 2364244,
+        "alignment": 4
+      },
+      {
+        "index": 5,
+        "type": 1685382481,
+        "flags": 6,
+        "offset": 0,
+        "virtualAddress": 0,
+        "physicalAddress": 0,
+        "fileSize": 0,
+        "memorySize": 0,
+        "alignment": 16
+      },
+      {
+        "index": 6,
+        "type": 1,
+        "flags": 5,
+        "offset": 58785792,
+        "virtualAddress": 60620800,
+        "physicalAddress": 60620800,
+        "fileSize": 10000,
+        "memorySize": 10000,
+        "alignment": 65536
+      },
+      {
+        "index": 7,
+        "type": 1,
+        "flags": 6,
+        "offset": 58785792,
+        "virtualAddress": 60686336,
+        "physicalAddress": 60686336,
+        "fileSize": 13752,
+        "memorySize": 13768,
+        "alignment": 65536
+      },
+      {
+        "index": 8,
+        "type": 1,
+        "flags": 6,
+        "offset": 58785792,
+        "virtualAddress": 60702720,
+        "physicalAddress": 60702720,
+        "fileSize": 18116,
+        "memorySize": 18116,
+        "alignment": 16384
+      }
+    ],
+    "sections": [
+      {
+        "index": 0,
+        "name": "",
+        "type": 0,
+        "flags": 0,
+        "address": 0,
+        "offset": 0,
+        "size": 0,
+        "link": 0,
+        "alignment": 0
+      },
+      {
+        "index": 1,
+        "name": ".note.gnu.build-id",
+        "type": 7,
+        "flags": 2,
+        "address": 12525224,
+        "offset": 12525224,
+        "size": 36,
+        "link": 0,
+        "alignment": 4
+      },
+      {
+        "index": 2,
+        "name": ".hash",
+        "type": 5,
+        "flags": 2,
+        "address": 60716552,
+        "offset": 58799624,
+        "size": 4284,
+        "link": 3,
+        "alignment": 8
+      },
+      {
+        "index": 3,
+        "name": ".dynsym",
+        "type": 11,
+        "flags": 2,
+        "address": 12492064,
+        "offset": 12492064,
+        "size": 13416,
+        "link": 4,
+        "alignment": 8
+      },
+      {
+        "index": 4,
+        "name": ".dynstr",
+        "type": 3,
+        "flags": 2,
+        "address": 12505480,
+        "offset": 12505480,
+        "size": 11771,
+        "link": 0,
+        "alignment": 1
+      },
+      {
+        "index": 5,
+        "name": ".rela.dyn",
+        "type": 4,
+        "flags": 2,
+        "address": 568,
+        "offset": 568,
+        "size": 12491496,
+        "link": 3,
+        "alignment": 8
+      },
+      {
+        "index": 6,
+        "name": ".rela.plt",
+        "type": 4,
+        "flags": 66,
+        "address": 12517256,
+        "offset": 12517256,
+        "size": 7968,
+        "link": 3,
+        "alignment": 8
+      },
+      {
+        "index": 7,
+        "name": ".plt",
+        "type": 1,
+        "flags": 6,
+        "address": 12527600,
+        "offset": 12527600,
+        "size": 5296,
+        "link": 0,
+        "alignment": 16
+      },
+      {
+        "index": 8,
+        "name": ".text",
+        "type": 1,
+        "flags": 6,
+        "address": 12532896,
+        "offset": 12532896,
+        "size": 24942324,
+        "link": 0,
+        "alignment": 16
+      },
+      {
+        "index": 9,
+        "name": ".rodata",
+        "type": 1,
+        "flags": 2,
+        "address": 37475232,
+        "offset": 37475232,
+        "size": 384264,
+        "link": 0,
+        "alignment": 16
+      },
+      {
+        "index": 10,
+        "name": ".eh_frame_hdr",
+        "type": 1,
+        "flags": 2,
+        "address": 37859496,
+        "offset": 37859496,
+        "size": 2364244,
+        "link": 0,
+        "alignment": 4
+      },
+      {
+        "index": 11,
+        "name": ".eh_frame",
+        "type": 1,
+        "flags": 2,
+        "address": 40223744,
+        "offset": 40223744,
+        "size": 9150520,
+        "link": 0,
+        "alignment": 8
+      },
+      {
+        "index": 12,
+        "name": ".gcc_except_table",
+        "type": 1,
+        "flags": 2,
+        "address": 49374264,
+        "offset": 49374264,
+        "size": 3120920,
+        "link": 0,
+        "alignment": 4
+      },
+      {
+        "index": 13,
+        "name": ".fini_array",
+        "type": 15,
+        "flags": 3,
+        "address": 52560792,
+        "offset": 52495256,
+        "size": 16,
+        "link": 0,
+        "alignment": 8
+      },
+      {
+        "index": 14,
+        "name": ".data.rel.ro",
+        "type": 1,
+        "flags": 3,
+        "address": 52560816,
+        "offset": 52495280,
+        "size": 4315040,
+        "link": 0,
+        "alignment": 16
+      },
+      {
+        "index": 15,
+        "name": ".dynamic",
+        "type": 6,
+        "flags": 3,
+        "address": 56875856,
+        "offset": 56810320,
+        "size": 432,
+        "link": 4,
+        "alignment": 8
+      },
+      {
+        "index": 16,
+        "name": ".got",
+        "type": 1,
+        "flags": 3,
+        "address": 56876320,
+        "offset": 56810784,
+        "size": 160968,
+        "link": 0,
+        "alignment": 8
+      },
+      {
+        "index": 17,
+        "name": ".got.plt",
+        "type": 1,
+        "flags": 3,
+        "address": 57037288,
+        "offset": 56971752,
+        "size": 2656,
+        "link": 0,
+        "alignment": 8
+      },
+      {
+        "index": 18,
+        "name": ".data",
+        "type": 1,
+        "flags": 3,
+        "address": 57039952,
+        "offset": 56974416,
+        "size": 1802376,
+        "link": 0,
+        "alignment": 16
+      },
+      {
+        "index": 19,
+        "name": ".bss",
+        "type": 8,
+        "flags": 3,
+        "address": 58842336,
+        "offset": 58776792,
+        "size": 1749064,
+        "link": 0,
+        "alignment": 16
+      },
+      {
+        "index": 20,
+        "name": ".comment",
+        "type": 1,
+        "flags": 48,
+        "address": 0,
+        "offset": 58776792,
+        "size": 117,
+        "link": 0,
+        "alignment": 1
+      },
+      {
+        "index": 21,
+        "name": ".shstrtab",
+        "type": 3,
+        "flags": 0,
+        "address": 0,
+        "offset": 58776792,
+        "size": 208,
+        "link": 0,
+        "alignment": 1
+      }
+    ]
+  },
+  "dynamicTags": [
+    {
+      "tag": 1,
+      "value": 3191
+    },
+    {
+      "tag": 1,
+      "value": 3201
+    },
+    {
+      "tag": 1,
+      "value": 10399
+    },
+    {
+      "tag": 1,
+      "value": 10412
+    },
+    {
+      "tag": 1,
+      "value": 10816
+    },
+    {
+      "tag": 1,
+      "value": 10825
+    },
+    {
+      "tag": 1,
+      "value": 11682
+    },
+    {
+      "tag": 14,
+      "value": 10886
+    },
+    {
+      "tag": 12,
+      "value": 60624972
+    },
+    {
+      "tag": 26,
+      "value": 52560792
+    },
+    {
+      "tag": 28,
+      "value": 16
+    },
+    {
+      "tag": 4,
+      "value": 60716552
+    },
+    {
+      "tag": 5,
+      "value": 12505480
+    },
+    {
+      "tag": 6,
+      "value": 12492064
+    },
+    {
+      "tag": 10,
+      "value": 11771
+    },
+    {
+      "tag": 11,
+      "value": 24
+    },
+    {
+      "tag": 3,
+      "value": 57037288
+    },
+    {
+      "tag": 2,
+      "value": 7968
+    },
+    {
+      "tag": 20,
+      "value": 7
+    },
+    {
+      "tag": 23,
+      "value": 12517256
+    },
+    {
+      "tag": 7,
+      "value": 568
+    },
+    {
+      "tag": 8,
+      "value": 12491496
+    },
+    {
+      "tag": 9,
+      "value": 24
+    },
+    {
+      "tag": 1879048185,
+      "value": 518984
+    }
+  ],
+  "symbolCounts": {
+    "total": 559,
+    "defined": 320,
+    "undefined": 239
+  },
+  "stringCount": 50954,
+  "keywordCounts": {
+    "network": 7,
+    "protocol": 26,
+    "crypto": 7,
+    "account": 0,
+    "battle": 18,
+    "shop": 12
+  },
+  "findings": {
+    "hasGameCoreInfoExports": true,
+    "hasPackBufferExports": true,
+    "hasSettleDataExport": true,
+    "hasIl2CppBridgeStrings": true,
+    "hasNetworkImports": true,
+    "hasProtectionBridgeImports": true
+  }
+}

@@ -14,7 +14,14 @@
 *.pdb
 
 # Local analysis and generated outputs
-workspace/
+workspace/apk/
+workspace/logs/
+workspace/observations/
+workspace/tests/
+workspace/analysis/*
+!workspace/analysis/gamecore/
+!workspace/analysis/gamecore/**
+workspace/analysis/gamecore/strings_filtered.txt
 zip_inventory.txt
 server/target/
 node_modules/

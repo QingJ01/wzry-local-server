@@ -1,0 +1,293 @@
+{
+  "network": [
+    {
+      "offset": 12506222,
+      "value": "connect"
+    },
+    {
+      "offset": 12507306,
+      "value": "select"
+    },
+    {
+      "offset": 12507322,
+      "value": "socket"
+    },
+    {
+      "offset": 12517008,
+      "value": "stub_recv"
+    },
+    {
+      "offset": 12517018,
+      "value": "stub_send"
+    },
+    {
+      "offset": 58788675,
+      "value": "stub_recv"
+    },
+    {
+      "offset": 58788685,
+      "value": "stub_send"
+    }
+  ],
+  "protocol": [
+    {
+      "offset": 12509638,
+      "value": "LZ4_createStreamDecode"
+    },
+    {
+      "offset": 12509661,
+      "value": "LZ4_decoderRingBufferSize"
+    },
+    {
+      "offset": 12509936,
+      "value": "LZ4_freeStreamDecode"
+    },
+    {
+      "offset": 12510041,
+      "value": "LZ4_setStreamDecode"
+    },
+    {
+      "offset": 12516016,
+      "value": "__frame_state_for"
+    },
+    {
+      "offset": 12516055,
+      "value": "__register_frame_info_bases"
+    },
+    {
+      "offset": 12516083,
+      "value": "__register_frame_info"
+    },
+    {
+      "offset": 12516105,
+      "value": "__register_frame"
+    },
+    {
+      "offset": 12516122,
+      "value": "__register_frame_info_table_bases"
+    },
+    {
+      "offset": 12516156,
+      "value": "__register_frame_info_table"
+    },
+    {
+      "offset": 12516184,
+      "value": "__register_frame_table"
+    },
+    {
+      "offset": 12516207,
+      "value": "__deregister_frame_info_bases"
+    },
+    {
+      "offset": 12516237,
+      "value": "__deregister_frame_info"
+    },
+    {
+      "offset": 12516261,
+      "value": "__deregister_frame"
+    },
+    {
+      "offset": 12516435,
+      "value": "ELF_HOOK_BRIDGE_InitializeAllMethodMetadata"
+    },
+    {
+      "offset": 12516479,
+      "value": "ELF_HOOK_BRIDGE_InitializeMethodMetadata"
+    },
+    {
+      "offset": 12516684,
+      "value": "ELF_HOOK_InitializeAllMethodMetadata"
+    },
+    {
+      "offset": 12516721,
+      "value": "ELF_HOOK_InitializeMethodMetadata"
+    },
+    {
+      "offset": 12540950,
+      "value": "d^Cmd"
+    },
+    {
+      "offset": 13455345,
+      "value": "jp_Cmdf"
+    },
+    {
+      "offset": 58776878,
+      "value": ".eh_frame_hdr"
+    },
+    {
+      "offset": 58776892,
+      "value": ".eh_frame"
+    },
+    {
+      "offset": 58788102,
+      "value": "ELF_HOOK_BRIDGE_InitializeAllMethodMetadata"
+    },
+    {
+      "offset": 58788146,
+      "value": "ELF_HOOK_BRIDGE_InitializeMethodMetadata"
+    },
+    {
+      "offset": 58788351,
+      "value": "ELF_HOOK_InitializeAllMethodMetadata"
+    },
+    {
+      "offset": 58788388,
+      "value": "ELF_HOOK_InitializeMethodMetadata"
+    }
+  ],
+  "crypto": [
+    {
+      "offset": 19098930,
+      "value": ",TEamX"
+    },
+    {
+      "offset": 22956853,
+      "value": "O+TEamY"
+    },
+    {
+      "offset": 23020330,
+      "value": "lTEal"
+    },
+    {
+      "offset": 23427826,
+      "value": "'TEamY"
+    },
+    {
+      "offset": 35799758,
+      "value": "mTea-"
+    },
+    {
+      "offset": 36400954,
+      "value": "mTeAm"
+    },
+    {
+      "offset": 36400990,
+      "value": "mTeAm"
+    }
+  ],
+  "account": [],
+  "battle": [
+    {
+      "offset": 12507883,
+      "value": "SGC_GetPlayerSettleData"
+    },
+    {
+      "offset": 12516016,
+      "value": "__frame_state_for"
+    },
+    {
+      "offset": 12516055,
+      "value": "__register_frame_info_bases"
+    },
+    {
+      "offset": 12516083,
+      "value": "__register_frame_info"
+    },
+    {
+      "offset": 12516105,
+      "value": "__register_frame"
+    },
+    {
+      "offset": 12516122,
+      "value": "__register_frame_info_table_bases"
+    },
+    {
+      "offset": 12516156,
+      "value": "__register_frame_info_table"
+    },
+    {
+      "offset": 12516184,
+      "value": "__register_frame_table"
+    },
+    {
+      "offset": 12516207,
+      "value": "__deregister_frame_info_bases"
+    },
+    {
+      "offset": 12516237,
+      "value": "__deregister_frame_info"
+    },
+    {
+      "offset": 12516261,
+      "value": "__deregister_frame"
+    },
+    {
+      "offset": 19098930,
+      "value": ",TEamX"
+    },
+    {
+      "offset": 22956853,
+      "value": "O+TEamY"
+    },
+    {
+      "offset": 23427826,
+      "value": "'TEamY"
+    },
+    {
+      "offset": 36400954,
+      "value": "mTeAm"
+    },
+    {
+      "offset": 36400990,
+      "value": "mTeAm"
+    },
+    {
+      "offset": 58776878,
+      "value": ".eh_frame_hdr"
+    },
+    {
+      "offset": 58776892,
+      "value": ".eh_frame"
+    }
+  ],
+  "shop": [
+    {
+      "offset": 12507659,
+      "value": "DB_GetItemPtr"
+    },
+    {
+      "offset": 12507698,
+      "value": "DB_PutItem"
+    },
+    {
+      "offset": 12507990,
+      "value": "DB_ContainsItem"
+    },
+    {
+      "offset": 12508006,
+      "value": "DB_DelItem"
+    },
+    {
+      "offset": 12508043,
+      "value": "DB_GetHeadItem"
+    },
+    {
+      "offset": 12508058,
+      "value": "DB_GetHeadItemNew"
+    },
+    {
+      "offset": 12508076,
+      "value": "DB_GetHeadItemPtr"
+    },
+    {
+      "offset": 12508094,
+      "value": "DB_GetItem"
+    },
+    {
+      "offset": 12508105,
+      "value": "DB_GetItemNew"
+    },
+    {
+      "offset": 12508119,
+      "value": "DB_GetNextItem"
+    },
+    {
+      "offset": 12508134,
+      "value": "DB_GetNextItemNew"
+    },
+    {
+      "offset": 12508152,
+      "value": "DB_GetNextItemPtr"
+    }
+  ]
+}
