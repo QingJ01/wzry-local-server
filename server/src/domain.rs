@@ -23,6 +23,18 @@ struct DomainState {
     battles: HashMap<u64, Battle>,
     shop_items: HashMap<&'static str, ShopItem>,
     orders: Vec<Order>,
+    events: Vec<DomainEvent>,
+    next_event_id: u64,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct DomainEvent {
+    id: u64,
+    #[serde(rename = "accountId")]
+    account_id: u64,
+    #[serde(rename = "type")]
+    kind: &'static str,
+    detail: serde_json::Value,
 }
 
 #[derive(Debug, Clone)]
@@ -166,6 +178,26 @@ impl AppServices {
         }
     }
 
+    fn push_event(
+        state: &mut DomainState,
+        account_id: u64,
+        kind: &'static str,
+        detail: serde_json::Value,
+    ) {
+        state.next_event_id += 1;
+        state.events.push(DomainEvent {
+            id: state.next_event_id,
+            account_id,
+            kind,
+            detail,
+        });
+        const MAX_EVENTS: usize = 10_000;
+        if state.events.len() > MAX_EVENTS {
+            let overflow = state.events.len() - MAX_EVENTS;
+            state.events.drain(..overflow);
+        }
+    }
+
     fn next_id(&self) -> u64 {
         self.next_id.fetch_add(1, Ordering::SeqCst)
     }
@@ -192,6 +224,13 @@ impl AppServices {
                 inventory: HashMap::new(),
             },
         );
+        let username = state.accounts[&id].username.clone();
+        Self::push_event(
+            &mut state,
+            id,
+            "account.registered",
+            json!({ "username": username }),
+        );
         let account = state.accounts.get(&id).unwrap();
         Ok(json!({ "id": id, "username": account.username, "balance": account.balance }))
     }
@@ -211,6 +250,7 @@ impl AppServices {
         }
         let token = format!("wzry-{id}-{}", self.next_id());
         state.tokens.insert(token.clone(), id);
+        Self::push_event(&mut state, id, "account.logged_in", json!({}));
         Ok(json!({ "token": token, "accountId": id }))
     }
 
@@ -264,16 +304,23 @@ impl AppServices {
     pub fn game_events(
         &self,
         account_id: u64,
-        _after: u64,
+        after: u64,
         epoch: u64,
     ) -> Result<GameEvents, DomainError> {
         let state = self.inner.lock().unwrap();
         if !state.accounts.contains_key(&account_id) {
             return Err(DomainError::NotFound("account not found".into()));
         }
+        let events: Vec<serde_json::Value> = state
+            .events
+            .iter()
+            .filter(|event| event.id > after)
+            .filter(|event| event.account_id == account_id)
+            .map(|event| serde_json::to_value(event).unwrap())
+            .collect();
         Ok(GameEvents {
             epoch,
-            events: Vec::new(),
+            events,
             reset_required: false,
             room: None,
             messages: Vec::new(),
@@ -312,9 +359,34 @@ impl AppServices {
                 members,
             },
         );
+        Self::push_event(
+            &mut state,
+            owner_id,
+            "room.created",
+            json!({ "roomId": id }),
+        );
         Ok(
             json!({ "id": id, "ownerId": owner_id, "mode": state.rooms[&id].mode, "state": "lobby" }),
         )
+    }
+
+    pub fn list_rooms(&self, token: Option<&str>) -> Result<serde_json::Value, DomainError> {
+        let state = self.inner.lock().unwrap();
+        Self::account_id(&self, &state, token.ok_or(DomainError::Unauthorized)?)?;
+        let rooms: Vec<serde_json::Value> = state
+            .rooms
+            .values()
+            .map(|room| {
+                json!({
+                    "id": room.id,
+                    "ownerId": room.owner_id,
+                    "mode": room.mode,
+                    "state": room.state,
+                    "members": room.members.len(),
+                })
+            })
+            .collect();
+        Ok(json!({ "rooms": rooms }))
     }
 
     pub fn join_room(
@@ -335,7 +407,15 @@ impl AppServices {
             return Err(DomainError::Conflict("already joined".into()));
         }
         room.members.insert(account_id, false);
-        Ok(json!({ "roomId": room.id, "accountId": account_id }))
+        let room_id = room.id;
+        let _ = room;
+        Self::push_event(
+            &mut state,
+            account_id,
+            "room.joined",
+            json!({ "roomId": room_id }),
+        );
+        Ok(json!({ "roomId": room_id, "accountId": account_id }))
     }
 
     pub fn ready_room(
@@ -353,7 +433,15 @@ impl AppServices {
             .members
             .get_mut(&account_id)
             .ok_or_else(|| DomainError::Conflict("not a room member".into()))? = request.ready;
-        Ok(json!({ "roomId": room.id, "ready": request.ready }))
+        let room_id = room.id;
+        let _ = room;
+        Self::push_event(
+            &mut state,
+            account_id,
+            "room.ready_changed",
+            json!({ "roomId": room_id, "ready": request.ready }),
+        );
+        Ok(json!({ "roomId": room_id, "ready": request.ready }))
     }
 
     pub fn start_battle(
@@ -386,6 +474,12 @@ impl AppServices {
         };
         let response = json!({ "id": battle.id, "roomId": battle.room_id, "state": battle.state, "participants": battle.participants });
         state.battles.insert(battle_id, battle);
+        Self::push_event(
+            &mut state,
+            owner_id,
+            "battle.started",
+            json!({ "battleId": battle_id, "roomId": room_id }),
+        );
         Ok(response)
     }
 
@@ -409,7 +503,15 @@ impl AppServices {
             frame_no: request.frame_no,
             payload: request.payload,
         });
-        Ok(json!({ "battleId": battle.id, "frameNo": request.frame_no }))
+        let battle_id = battle.id;
+        let _ = battle;
+        Self::push_event(
+            &mut state,
+            account_id,
+            "battle.frame_added",
+            json!({ "battleId": battle_id, "frameNo": request.frame_no }),
+        );
+        Ok(json!({ "battleId": battle_id, "frameNo": request.frame_no }))
     }
 
     pub fn settle_battle(
@@ -432,11 +534,20 @@ impl AppServices {
         battle.result = Some(request.result);
         battle.score = request.score;
         let room_id = battle.room_id;
+        let battle_id = battle.id;
+        let result_value = battle.result.clone();
+        let score_value = battle.score;
         let response = json!({ "id": battle.id, "state": battle.state, "result": battle.result, "score": battle.score });
         let _ = battle;
         if let Some(room) = state.rooms.get_mut(&room_id) {
             room.state = "settled";
         }
+        Self::push_event(
+            &mut state,
+            account_id,
+            "battle.settled",
+            json!({ "battleId": battle_id, "result": result_value, "score": score_value }),
+        );
         Ok(response)
     }
 
@@ -507,6 +618,7 @@ impl AppServices {
             .entry(request.item_id.clone())
             .or_insert(0) += request.quantity;
         let order_id = self.next_id();
+        let item_id_value = request.item_id.clone();
         let order = Order {
             id: order_id,
             account_id,
@@ -515,8 +627,15 @@ impl AppServices {
             total,
             status: "completed",
         };
+        let total_value = order.total;
         let response = json!({ "id": order.id, "itemId": order.item_id, "quantity": order.quantity, "total": order.total, "status": order.status });
         state.orders.push(order);
+        Self::push_event(
+            &mut state,
+            account_id,
+            "shop.purchased",
+            json!({ "orderId": order_id, "itemId": item_id_value, "total": total_value }),
+        );
         Ok(response)
     }
 }

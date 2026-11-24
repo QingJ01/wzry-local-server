@@ -134,10 +134,21 @@ fn game_event_polling_requires_a_valid_session() {
     )
     .unwrap();
     assert_eq!(response["epoch"], 1);
-    assert_eq!(response["events"], serde_json::json!([]));
+    let events = response["events"].as_array().unwrap();
+    assert_eq!(events.len(), 2);
+    assert_eq!(events[0]["type"], "account.registered");
+    assert_eq!(events[1]["type"], "account.logged_in");
     assert_eq!(response["messages"], serde_json::json!([]));
     assert_eq!(response["resetRequired"], false);
     assert_eq!(response["room"], serde_json::json!(null));
+
+    let incremental = route(
+        &app,
+        app_state(true),
+        &request("GET", "/game/events?after=2", Some(&token), None),
+    )
+    .unwrap();
+    assert_eq!(incremental["events"].as_array().unwrap().len(), 0);
 
     let query_response = route(
         &app,
@@ -466,6 +477,53 @@ fn account_battle_and_shop_requests_require_valid_token() {
         let response = response_for(Err(error));
         assert!(response.starts_with(b"HTTP/1.1 401"), "path={path}");
     }
+}
+
+#[test]
+fn list_rooms_returns_created_rooms_for_member() {
+    let app = services();
+    let owner_token = login(&app, "roomowner");
+
+    wzry_local_server::http::route_with_handler(
+        &request(
+            "POST",
+            "/rooms",
+            Some(&owner_token),
+            Some(r#"{"mode":"ranked"}"#),
+        ),
+        AppState::default(),
+        &RequestHandler::Services {
+            services: &app,
+            store: None,
+        },
+    )
+    .unwrap();
+
+    let rooms = wzry_local_server::http::route_with_handler(
+        &request("GET", "/rooms", Some(&owner_token), None),
+        AppState::default(),
+        &RequestHandler::Services {
+            services: &app,
+            store: None,
+        },
+    )
+    .unwrap();
+    let list = rooms["rooms"].as_array().unwrap();
+    assert_eq!(list.len(), 1);
+    assert_eq!(list[0]["mode"], "ranked");
+    assert_eq!(list[0]["state"], "lobby");
+    assert_eq!(list[0]["members"], 1);
+
+    let unauth = wzry_local_server::http::route_with_handler(
+        &request("GET", "/rooms", None, None),
+        AppState::default(),
+        &RequestHandler::Services {
+            services: &app,
+            store: None,
+        },
+    )
+    .unwrap_err();
+    assert!(response_for(Err(unauth)).starts_with(b"HTTP/1.1 401"));
 }
 
 fn login(app: &AppServices, username: &str) -> String {

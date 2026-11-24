@@ -24,12 +24,12 @@ $env:WZRY_FRAME_ADDR = "127.0.0.1:19621"
 
 - `GET /health`：服务健康状态。
 - 账号：`POST /accounts/register`、`POST /accounts/login`、`GET /accounts/me`。
-- 对战：`POST /rooms`、`/rooms/join`、`/rooms/ready`、`/battles/start`、`/battles/frame`、`/battles/settle`、`/battles/get`。
+- 对战：`POST /rooms`、`GET /rooms`、`/rooms/join`、`/rooms/ready`、`/battles/start`、`/battles/frame`、`/battles/settle`、`/battles/get`。
 - 商城：`GET /shop/items`、`GET /shop/profile`、`POST /shop/purchase`。
 - `POST /game`：观测 `{ "methodId": ..., "body": ... }`，未知协议返回 `501` 并记录。
 - `GET /debug/observations`：只读查看 HTTP/TCP 观测记录。
 - `POST /local/session`：用 `{ "accountId": ... }` 为本机调试客户端绑定默认事件会话，返回 `localToken`。
-- `GET /game/events?after=<cursor>`：授权事件轮询。支持 `Authorization: Bearer <token>`；在开启本地会话时也支持 `localToken` 查询参数或未带凭据的默认会话。
+- `GET /game/events?after=<cursor>`：授权事件轮询。返回该账号在 `after` 之后产生的领域事件（注册、登录、房间、对战、商城）。支持 `Authorization: Bearer <token>`；在开启本地会话时也支持 `localToken` 查询参数或未带凭据的默认会话。
 
 观测记录包含来源、字节数、状态和 Unix 毫秒时间戳。`/debug/observations` 只返回最近 1,000 条，内存审计日志最多保留 10,000 条；`wzry_local_server::export_observations_jsonl` 可导出最近 10,000 条 JSON Lines。观测只证明请求到达本地服务，不表示已解码或验证客户端协议。
 

@@ -343,6 +343,7 @@ fn route_domain(
         ("POST", "/rooms") => services
             .create_room(token.as_deref(), json_field(body, "mode")?)
             .map_err(domain_error),
+        ("GET", "/rooms") => services.list_rooms(token.as_deref()).map_err(domain_error),
         ("POST", "/rooms/join") => services
             .join_room(token.as_deref(), parse_body(body)?)
             .map_err(domain_error),
@@ -394,7 +395,7 @@ fn domain_error(error: crate::domain::DomainError) -> RouteError {
     match error {
         crate::domain::DomainError::Unauthorized => RouteError::Unauthorized,
         crate::domain::DomainError::Conflict(message) => RouteError::Conflict(message),
-        crate::domain::DomainError::NotFound(message) => RouteError::Conflict(message),
+        crate::domain::DomainError::NotFound(_) => RouteError::NotFound,
         crate::domain::DomainError::InvalidRequest(message) => {
             RouteError::InvalidDomainRequest(message)
         }
