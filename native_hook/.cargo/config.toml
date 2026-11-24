@@ -1,0 +1,6 @@
+[target.x86_64-linux-android]
+linker = "rust-lld"
+rustflags = [
+    "-C", "link-arg=-nostdlib",
+    "-C", "link-arg=-Lsysroot",
+]
