@@ -139,7 +139,6 @@ switch ($Action) {
         $process = Start-Process -FilePath $nodePath `
             -ArgumentList @(
                 (Join-Path (Split-Path -Parent $PSCommandPath) 'run-network-capture.mjs'),
-                (Join-Path $ObservationDirectory $runId),
                 $logPath,
                 $CaptureSeconds
             ) `

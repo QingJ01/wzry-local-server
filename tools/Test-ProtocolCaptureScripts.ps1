@@ -106,7 +106,7 @@ if ($LASTEXITCODE -ne 0) {
 }
 
 foreach ($requiredToken in @(
-    'Module.findExportByName',
+    'Module.findGlobalExportByName',
     "'socket'",
     "'connect'",
     "'send'",

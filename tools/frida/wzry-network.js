@@ -21,7 +21,7 @@ function formatHex(bytes) {
 
 function readPreviewHex(address, length) {
     const previewLength = Math.min(length, maximumPreviewBytes);
-    if (previewLength <= 0 || address.isNull()) {
+    if (previewLength <= 0 || !address || address.isNull()) {
         return {
             hex: null,
             truncated: false
@@ -29,7 +29,7 @@ function readPreviewHex(address, length) {
     }
 
     try {
-        const bytes = new Uint8Array(Memory.readByteArray(address, previewLength));
+        const bytes = new Uint8Array(address.readByteArray(previewLength));
         return {
             hex: formatHex(bytes),
             truncated: length > previewLength
@@ -48,7 +48,7 @@ function readSocketFamily(sockaddr) {
         return null;
     }
     try {
-        return Memory.readU16(sockaddr);
+        return sockaddr.readU16();
     } catch (error) {
         return null;
     }
@@ -57,8 +57,8 @@ function readSocketFamily(sockaddr) {
 function readSocketAddress(sockaddr) {
     const family = readSocketFamily(sockaddr);
     if (family === 2) {
-        const portBytes = new Uint8Array(Memory.readByteArray(sockaddr.add(2), 2));
-        const addressBytes = new Uint8Array(Memory.readByteArray(sockaddr.add(4), 4));
+        const portBytes = new Uint8Array(sockaddr.add(2).readByteArray(2));
+        const addressBytes = new Uint8Array(sockaddr.add(4).readByteArray(4));
         return {
             family: 'AF_INET',
             address: `${addressBytes[0]}.${addressBytes[1]}.${addressBytes[2]}.${addressBytes[3]}`,
@@ -66,8 +66,8 @@ function readSocketAddress(sockaddr) {
         };
     }
     if (family === 10) {
-        const portBytes = new Uint8Array(Memory.readByteArray(sockaddr.add(2), 2));
-        const addressBytes = new Uint8Array(Memory.readByteArray(sockaddr.add(8), 16));
+        const portBytes = new Uint8Array(sockaddr.add(2).readByteArray(2));
+        const addressBytes = new Uint8Array(sockaddr.add(8).readByteArray(16));
         const words = [];
         for (let index = 0; index < 16; index += 2) {
             words.push(((addressBytes[index] << 8) | addressBytes[index + 1]).toString(16));
@@ -120,7 +120,11 @@ function resolveEndpoint(descriptor) {
 }
 
 function isSocketDescriptor(descriptor) {
-    return socketDescriptors.has(descriptor) || connectedSockets.has(descriptor);
+    if (connectedSockets.has(descriptor)) {
+        return true;
+    }
+    const socketDescriptor = socketDescriptors.get(descriptor);
+    return socketDescriptor !== undefined && (socketDescriptor.domain === 2 || socketDescriptor.domain === 10);
 }
 
 function isLikelySocketDescriptor(descriptor) {
@@ -137,7 +141,7 @@ function isLikelySocketDescriptor(descriptor) {
 }
 
 function hookExport(moduleName, exportName, callbacks) {
-    const address = Module.findExportByName(moduleName, exportName);
+    const address = Module.findGlobalExportByName(exportName);
     if (!address) {
         logEvent('hook-missing', { module: moduleName, export: exportName });
         return;
@@ -200,8 +204,8 @@ function readIovec(iov, count) {
     let previewAddress = null;
     for (let index = 0; index < count; index += 1) {
         const entry = iov.add(index * 16);
-        const base = Memory.readPointer(entry);
-        const rawLength = Memory.readU64(entry.add(8));
+        const base = entry.readPointer();
+        const rawLength = entry.add(8).readU64();
         const length = typeof rawLength.toNumber === 'function' ? rawLength.toNumber() : Number(rawLength);
         requestedLength += length;
         if (previewAddress === null && length > 0 && !base.isNull()) {
@@ -217,6 +221,11 @@ function logSocketData(functionName, direction, descriptor, result, requestedLen
     }
 
     const actualLength = result > 0 ? result : 0;
+    const socketDescriptor = socketDescriptors.get(descriptor);
+    if (socketDescriptor !== undefined && socketDescriptor.domain !== 2 && socketDescriptor.domain !== 10) {
+        return;
+    }
+
     const endpointState = resolveEndpoint(descriptor);
     if (endpointState.source === null) {
         return;

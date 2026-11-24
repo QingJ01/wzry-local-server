@@ -6,7 +6,7 @@ import frida from 'frida';
 const logPath = process.argv[2];
 const captureSeconds = Number(process.argv[3] || 60);
 const packageId = 'com.tencent.tmgp.sgame';
-const scriptPath = path.resolve('tools/frida/wzry-network.js');
+const scriptPath = path.resolve(import.meta.dirname, 'wzry-network.js');
 
 if (!logPath || !Number.isFinite(captureSeconds) || captureSeconds <= 0) {
   console.error('Usage: node tools/frida/run-network-capture.mjs <log-path> <seconds>');
