@@ -5,6 +5,9 @@
 *.idsig
 *.jks
 *.keystore
+client/builds/
+client/install-logs/
+client/keys/
 *.p12
 *.db
 *.sqlite
