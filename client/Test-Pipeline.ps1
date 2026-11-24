@@ -88,6 +88,13 @@ $validationText = Get-Content -Raw -LiteralPath $validationPlan
 Assert-True ($validationText.Contains('Validated 4 binary replacement(s)')) 'Build script must validate control-plane patch plan'
 
 $buildScriptAst = [System.Management.Automation.Language.Parser]::ParseFile($buildScript, [ref]$null, [ref]$null)
+$newStagingZipFunction = $buildScriptAst.Find({
+    param($node)
+    $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and
+    $node.Name -eq 'New-StagingZip'
+}, $true)
+Assert-True ($null -ne $newStagingZipFunction) 'Build script must define New-StagingZip'
+Assert-True ($newStagingZipFunction.Body.Extent.Text.Contains('foreach ($entry in $SourceArchive.Entries)')) 'Build script must rebuild staging ZIP in source entry order'
 $writeEntryFunction = $buildScriptAst.Find({
     param($node)
     $node -is [System.Management.Automation.Language.FunctionDefinitionAst] -and

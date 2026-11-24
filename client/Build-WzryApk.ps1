@@ -117,15 +117,7 @@ function Write-EntryBytes {
     }
     $entry = $Archive.CreateEntry($EntryPath, (Get-EntryCompressionLevel $EntryPath))
     if (Get-EntryStorePolicy $EntryPath) {
-        $compressionMethodProperty = [System.IO.Compression.ZipArchiveEntry].GetProperty(
-            'CompressionMethod',
-            [System.Reflection.BindingFlags]::Instance -bor [System.Reflection.BindingFlags]::NonPublic
-        )
-        $compressionMethodProperty.SetValue(
-            $entry,
-            [Enum]::Parse($compressionMethodProperty.PropertyType, 'Stored'),
-            $null
-        )
+        Set-ZipEntryCompressionMethod $entry 'Stored'
     }
     $stream = $entry.Open()
     try {
@@ -134,6 +126,54 @@ function Write-EntryBytes {
     finally {
         $stream.Dispose()
     }
+}
+
+function New-StagingZip {
+    param(
+        [System.IO.Compression.ZipArchive]$SourceArchive,
+        [string]$DestinationPath
+    )
+
+    $stagingArchive = [System.IO.Compression.ZipFile]::Open($DestinationPath, [System.IO.Compression.ZipArchiveMode]::Create)
+    try {
+        foreach ($entry in $SourceArchive.Entries) {
+            $newEntry = $stagingArchive.CreateEntry($entry.FullName, (Get-EntryCompressionLevel $entry.FullName))
+            if (Get-EntryStorePolicy $entry.FullName) {
+                Set-ZipEntryCompressionMethod $newEntry 'Stored'
+            }
+            $sourceStream = $entry.Open()
+            $destinationStream = $newEntry.Open()
+            try {
+                $sourceStream.CopyTo($destinationStream)
+            }
+            finally {
+                $destinationStream.Dispose()
+                $sourceStream.Dispose()
+            }
+        }
+    }
+    catch {
+        $stagingArchive.Dispose()
+        throw
+    }
+    $stagingArchive.Dispose()
+}
+
+function Set-ZipEntryCompressionMethod {
+    param(
+        [System.IO.Compression.ZipArchiveEntry]$Entry,
+        [string]$Method
+    )
+
+    $compressionMethodProperty = [System.IO.Compression.ZipArchiveEntry].GetProperty(
+        'CompressionMethod',
+        [System.Reflection.BindingFlags]::Instance -bor [System.Reflection.BindingFlags]::NonPublic
+    )
+    $compressionMethodProperty.SetValue(
+        $Entry,
+        [Enum]::Parse($compressionMethodProperty.PropertyType, $Method),
+        $null
+    )
 }
 
 function Get-EntryCompressionLevel {
@@ -258,7 +298,13 @@ if ($WhatIf) {
 }
 
 $stagingApk = "$OutputApk.staging"
-Copy-Item -LiteralPath $SourceApk -Destination $stagingApk
+$sourceArchive = [System.IO.Compression.ZipFile]::OpenRead($SourceApk)
+try {
+    New-StagingZip $sourceArchive $stagingApk
+}
+finally {
+    $sourceArchive.Dispose()
+}
 
 try {
 if ($entries.Count -gt 0 -or $binaryPatches.Count -gt 0) {
