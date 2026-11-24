@@ -23,8 +23,13 @@ $env:WZRY_FRAME_ADDR = "127.0.0.1:19621"
 ## 接口
 
 - `GET /health`：服务健康状态。
+- 账号：`POST /accounts/register`、`POST /accounts/login`、`GET /accounts/me`。
+- 对战：`POST /rooms`、`/rooms/join`、`/rooms/ready`、`/battles/start`、`/battles/frame`、`/battles/settle`、`/battles/get`。
+- 商城：`GET /shop/items`、`GET /shop/profile`、`POST /shop/purchase`。
 - `POST /game`：观测 `{ "methodId": ..., "body": ... }`，未知协议返回 `501` 并记录。
 - `GET /debug/observations`：只读查看 HTTP/TCP 观测记录。
+
+认证接口使用 `Authorization: Bearer <token>`。
 
 ## 测试
 
@@ -33,4 +38,4 @@ cargo fmt --check
 cargo test
 ```
 
-当前测试覆盖帧分片/粘包/超限、HTTP JSON 错误、Content-Length 精确读取、并发客户端和观测接口。
+当前测试覆盖账号/对战/商城领域流、帧分片/粘包/超限、HTTP JSON 错误、Content-Length 精确读取、并发客户端和观测接口。

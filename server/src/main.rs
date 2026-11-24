@@ -3,10 +3,13 @@ use std::net::{TcpListener, TcpStream};
 use std::sync::Arc;
 use wzry_local_server::http::response_status;
 use wzry_local_server::read_request::RequestReader;
-use wzry_local_server::{http, AppState, FrameConfig, FrameParser, MemoryStore, Store};
+use wzry_local_server::{
+    http, AppServices, AppState, FrameConfig, FrameParser, MemoryStore, Store,
+};
 
 fn main() {
     let store = Arc::new(MemoryStore::new());
+    let services = Arc::new(AppServices::new(Arc::clone(&store) as Arc<dyn Store>));
     let http_address = std::env::var("WZRY_HTTP_ADDR").unwrap_or_else(|_| "127.0.0.1:19620".into());
     let frame_address =
         std::env::var("WZRY_FRAME_ADDR").unwrap_or_else(|_| "127.0.0.1:19621".into());
@@ -41,8 +44,8 @@ fn main() {
     loop {
         match listener.accept() {
             Ok((mut stream, _)) => {
-                let store = Arc::clone(&store);
-                std::thread::spawn(move || handle_http_connection(&mut stream, store));
+                let services = Arc::clone(&services);
+                std::thread::spawn(move || handle_http_connection(&mut stream, services));
             }
             Err(error) if error.kind() == std::io::ErrorKind::WouldBlock => {
                 std::thread::sleep(std::time::Duration::from_millis(10));
@@ -56,7 +59,7 @@ fn main() {
     println!("Server stopped");
 }
 
-fn handle_http_connection(stream: &mut TcpStream, store: Arc<dyn Store>) {
+fn handle_http_connection(stream: &mut TcpStream, services: Arc<AppServices>) {
     stream
         .set_read_timeout(Some(std::time::Duration::from_secs(5)))
         .unwrap_or_default();
@@ -74,7 +77,8 @@ fn handle_http_connection(stream: &mut TcpStream, store: Arc<dyn Store>) {
         }
     };
     let state = AppState::default();
-    let result = wzry_local_server::route(&request.bytes, state, &store);
+    let handler = http::RequestHandler::Services(&services);
+    let result = http::route_with_handler(&request.bytes, state, &handler);
     let status = response_status(&result);
     let response = http::response_for(result);
     let _ = stream.write_all(&response);

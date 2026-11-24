@@ -10,7 +10,7 @@ pub struct Observation {
     pub status: u16,
 }
 
-pub trait Store: Send {
+pub trait Store: Send + Sync {
     fn add_observation(&self, observation: Observation);
     fn observations(&self) -> Vec<Observation>;
     fn observation_count(&self) -> usize;
