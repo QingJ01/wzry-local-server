@@ -29,7 +29,9 @@ node_modules/
 dist/
 build/
 coverage/
-client/builds/
+client/builds/*
+!client/builds/.gitignore
+!client/builds/wzry-version-gate-localdebug-sgamx-v4.apk.manifest.json
 .env
 .env.*
 

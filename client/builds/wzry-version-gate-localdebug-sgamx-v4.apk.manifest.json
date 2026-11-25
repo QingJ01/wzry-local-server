@@ -1,0 +1,53 @@
+{
+  "sourceApk": "D:/project/wzry/client/builds/wzry-version-gate-localdebug-sgamx-v3.apk",
+  "sourceSha256": "7DEA7EE8E32ACF7FD3ED48C9FD6E67D6C690E7010576C9A18460B5E56D062AD7",
+  "outputApk": "D:/project/wzry/client/builds/wzry-version-gate-localdebug-sgamx-v4.apk",
+  "outputSha256": "9D8423BCFE6BC3DD11D6E15DCB45DF8086872E8299C9A1C6CC77F5582406D81A",
+  "baseBuild": "v3 (manifest rename sgamx + libapollo 3-patch, all preserved byte-identical except resources.arsc)",
+  "patchTechnique": "copy v3 -> random-access in-place rewrite of resources.arsc STORED data + CRC-32 fixup in LFH+CD, then apksigner re-sign; no recompression of any entry",
+  "nativePatches": [
+    {
+      "entryPath": "resources.arsc",
+      "offset": 52166,
+      "offsetHex": "0xCBC6",
+      "originalBytesHex": "6500",
+      "replacementBytesHex": "7800",
+      "evidence": "reports/resource_license_gate_20261125.md",
+      "effect": "arsc package group com.tencent.tmgp.sgame -> com.tencent.tmgp.sgamx"
+    }
+  ],
+  "verification": {
+    "arscPackageGroup": "com.tencent.tmgp.sgamx (parsed from RES_TABLE_PACKAGE_TYPE chunk, id 0x7f)",
+    "arscBytesAt0xCBC6": "7800",
+    "libapolloPatches": {
+      "lib/arm64-v8a/libapollo.so@5191308": "52800005",
+      "@5191312": "52800006",
+      "@5191320": "52800007"
+    },
+    "aapt2Packagename": "com.tencent.tmgp.sgamx",
+    "launchableActivity": "com.tencent.tmgp.sgame.SGameActivity",
+    "zipalign": {
+      "command": "zipalign -c -p 4",
+      "exitCode": 0
+    },
+    "apksigner": {
+      "command": "apksigner verify --verbose --min-sdk-version 24",
+      "v2": true,
+      "v3": true,
+      "exitCode": 0
+    },
+    "zipLayoutDiff": {
+      "reference": "v3",
+      "entryCount": 687,
+      "orderIdentical": true,
+      "differences": [
+        "resources.arsc (patched)",
+        "META-INF/MANIFEST.MF / WZRY-DEB.SF / WZRY-DEB.RSA (re-signed digest side effects)"
+      ],
+      "methodMismatches": 0,
+      "nonStoredSensitiveEntries": 0
+    },
+    "idsigRemoved": true
+  },
+  "builtAt": "2026-11-25T01:03:19.731Z"
+}
